@@ -1,0 +1,14 @@
+title: Transformer wavefunction
+description: A transformer that outputs fermionic orbitals; a determinant turns them into an antisymmetric wavefunction. Tap any block for details.
+
+markdown: kramdown
+kramdown:
+  input: GFM
+  math_engine: mathjax
+
+defaults:
+  - scope:
+      path: ""
+      type: posts
+    values:
+      layout: null
