@@ -1,0 +1,62 @@
+---
+---
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{ site.title | escape }}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div id="root">
+  <header class="top">
+    <h1>{{ site.title | escape }}</h1>
+    <p class="sub">{{ site.description | escape }}</p>
+  </header>
+  <main class="layout">
+    <section class="diagram" id="diagram" aria-label="Architecture diagram"></section>
+    <aside class="panel" id="panel" aria-label="Block details"></aside>
+  </main>
+</div>
+<div class="scrim" id="scrim" hidden></div>
+
+{%- comment -%} Every file in _posts becomes one hidden <article>. app.js reads them. {%- endcomment -%}
+{% assign blocks = site.posts | sort: "order", "last" %}
+<div id="blocks" hidden>
+{% for p in blocks %}
+  <article data-id="{{ p.slug }}"
+           data-kind="{{ p.kind | default: 'layer' }}"
+           data-order="{{ p.order }}"
+           data-tex="{{ p.tex | escape }}"
+           data-from="{{ p.from }}"
+           data-to="{{ p.to }}"
+           {% if site.github.repository_url %}data-edit="{{ site.github.repository_url }}/edit/{{ site.github.source.branch | default: 'main' }}/{{ p.path }}"{% endif %}>
+    <h2 class="b-title">{{ p.title | escape }}</h2>
+    <div class="b-body">{{ p.content }}</div>
+  </article>
+{% endfor %}
+</div>
+
+<script>
+window.MathJax = {
+  tex: { inlineMath: [["\\(", "\\)"]], displayMath: [["\\[", "\\]"]] },
+  svg: { fontCache: "global" },
+  options: { enableMenu: false },
+  startup: {
+    typeset: false,
+    pageReady: function () {
+      return MathJax.startup.defaultPageReady().then(function () {
+        window.dispatchEvent(new Event("mj-ready"));
+      });
+    }
+  }
+};
+</script>
+<script defer src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-svg.js"></script>
+<script defer src="assets/app.js"></script>
+</body>
+</html>
