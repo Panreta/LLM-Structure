@@ -1,14 +1,12 @@
 ---
 title: Normalize
-kind: core
-order: 2
-tex: '\div\, p(x)'
+order: 4
+tex: 'p(x) = \int_0^1 p(x \mid \theta)\,p(\theta)\,d\theta'
 ---
+Divide the joint by the evidence $$p(x)$$, its total area, so the posterior integrates to 1.
 
-Divide by the evidence, so the posterior sums (or integrates) to 1:
+Example:
 
-$$p(x) = \sum_\theta p(x \mid \theta)\,p(\theta) \quad\text{or}\quad \int p(x \mid \theta)\,p(\theta)\,d\theta$$
+$$p(x) = 6\,B(9,5) = 6 \cdot \frac{8!\,4!}{13!} \approx 9.32 \times 10^{-4}$$
 
-Because $$p(x)$$ doesn't depend on $$\theta$$, the posterior is proportional to the joint. This is why sampling methods like MCMC can skip computing it.
-
-Example: $$p(H) = 0.25 + 0.45 = 0.7$$.
+Since $$p(x)$$ doesn't depend on $$\theta$$, the posterior is proportional to the joint. That is why sampling methods like MCMC never need to compute it.

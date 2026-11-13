@@ -28,7 +28,8 @@
       id: s.dataset.id,
       title: text(s, ".d-title") || titleFromId(s.dataset.id),
       labels: (s.dataset.labels || "").split("|").map(function (l) { return l.trim(); }).filter(Boolean),
-      description: text(s, ".d-desc")
+      description: text(s, ".d-desc"),
+      figure: s.dataset.figure || ""
     };
   });
 
@@ -55,6 +56,9 @@
 
   function findDiagram(id) { return diagrams.filter(function (d) { return d.id === id; })[0] || null; }
   function blocksOf(id) { return blocks.filter(function (b) { return b.diagram === id; }); }
+  // A diagram with `figure:` is drawn as a classical figure (assets/figures.js);
+  // without one, as a flow of blocks.
+  function hasFigure(d) { return !!(d.figure && window.Figures && window.Figures.specs[d.figure]); }
   function find(id) { return cur && blocksOf(cur.id).filter(function (b) { return b.id === id; })[0] || null; }
 
   var labels = [];
@@ -64,6 +68,7 @@
   var cur = null;      // diagram on screen, or null on the home page
   var openId = null;   // open block in cur
   var filter = "";     // active home-page label, "" = all
+  var fig = null;      // mounted figure of cur, if it has one
 
   // ---------- 2. math ----------
   function typeset(node) {
@@ -126,15 +131,23 @@
       }
       main.appendChild(el("h2", "card-title", d.title));
       if (d.description) main.appendChild(el("p", "card-desc", d.description));
-      main.appendChild(el("p", "card-count", bs.length === 1 ? "1 block" : bs.length + " blocks"));
-      a.appendChild(main);
+      var noun = hasFigure(d) ? "part" : "block";
+      main.appendChild(el("p", "card-count", bs.length + " " + noun + (bs.length === 1 ? "" : "s")));
 
-      var spine = el("div", "spine");
-      spine.setAttribute("aria-hidden", "true");
-      bs.filter(function (b) { return b.kind !== "rail"; }).forEach(function (b) {
-        spine.appendChild(el("span", "k-" + b.kind));
-      });
-      a.appendChild(spine);
+      // Preview: a thumbnail of the figure, or a spine with one bar per block.
+      var art = el("div", "card-art");
+      art.setAttribute("aria-hidden", "true");
+      if (hasFigure(d)) {
+        window.Figures.mount(art, d.figure, { thumb: true });
+      } else {
+        var spine = el("div", "spine");
+        bs.filter(function (b) { return b.kind !== "rail"; }).forEach(function (b) {
+          spine.appendChild(el("span", "k-" + b.kind));
+        });
+        art.appendChild(spine);
+      }
+      a.appendChild(art);
+      a.appendChild(main);
       g.appendChild(a);
     });
     typeset(g);
@@ -164,8 +177,10 @@
   function renderDiagram() {
     var d = $("#diagram");
     d.innerHTML = "";
+    fig = null;
     var bs = blocksOf(cur.id);
     $("#panel").hidden = bs.length === 0;
+    d.classList.toggle("is-figure", hasFigure(cur));
     if (!bs.length) {
       var p = el("p", "empty", "This diagram has no blocks yet. Add Markdown files to ");
       p.appendChild(el("code", null, "_posts/" + cur.id + "/"));
@@ -173,6 +188,7 @@
       d.appendChild(p);
       return;
     }
+    if (hasFigure(cur)) { renderFigure(d, bs); return; }
     var stack = el("div", "stack");
 
     bs.filter(function (b) { return b.kind !== "rail"; }).forEach(function (b, i) {
@@ -202,6 +218,29 @@
     syncPressed();
     typeset(d);
     requestAnimationFrame(placeRail);
+  }
+
+  // A classical figure, plus a row of chips so every part is reachable by keyboard.
+  function renderFigure(d, bs) {
+    fig = window.Figures.mount(d, cur.figure, {
+      parts: bs.map(function (b) { return b.id; }),
+      onPart: function (id) { open(id); },
+      typeset: typeset
+    });
+    var parts = el("div", "parts");
+    parts.appendChild(el("p", "parts-title", "Parts of this figure"));
+    var row = el("div", "chips");
+    bs.forEach(function (b) {
+      var c = el("button", "chip chip-sm", b.title);
+      c.type = "button";
+      c.dataset.id = b.id;
+      c.addEventListener("click", function () { open(b.id); });
+      row.appendChild(c);
+    });
+    parts.appendChild(row);
+    d.appendChild(parts);
+    syncPressed();
+    typeset(d);
   }
 
   // Position each rail so it runs from its `from` block up to its `to` block.
@@ -252,6 +291,7 @@
     all("#diagram [data-id]").forEach(function (b) {
       b.setAttribute("aria-pressed", String(b.dataset.id === openId));
     });
+    if (fig) fig.highlight(openId);
   }
 
   function renderPanel() {

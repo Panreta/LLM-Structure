@@ -1,8 +1,8 @@
 ---
-title: Approximate minimizer
-kind: plain
-order: 1
-tex: '\mathbf{x}_T \approx \arg\min_{\mathbf{x}} f(\mathbf{x})'
+title: Minimizer
+order: 7
+tex: '\mathbf{x}^\star = \mathbf{0}'
 ---
+The center of the contours, where $$\nabla f = \mathbf{0}$$ and $$f^\star = 0$$.
 
-The output after $$T$$ steps. For convex $$f$$ this approximates a global minimum. Otherwise it is typically a local minimum (or a saddle point), and which one you get depends on $$\mathbf{x}_0$$.
+The fastest fixed learning rate here is $$\eta = \frac{2}{L + \mu} = \frac27$$. It shrinks both coordinates by the factor $$\frac{\kappa - 1}{\kappa + 1} = \frac57$$ per step.

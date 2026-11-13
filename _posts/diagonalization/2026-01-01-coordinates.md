@@ -1,10 +1,10 @@
 ---
 title: Eigen-coordinates
-kind: layer
-order: 4
+order: 2
 tex: '\mathbf{c} = P^{-1}\mathbf{x}'
 ---
+The brown dashed lines are the eigenlines of $$A$$, spanned by $$\mathbf{v}_1 = (1,1)$$ and $$\mathbf{v}_2 = (1,-1)$$. They are the columns of $$P$$.
 
-Write $$\mathbf{x}$$ as a combination of eigenvectors, $$\mathbf{x} = \sum_i c_i \mathbf{v}_i$$, and keep the coefficients $$\mathbf{c}$$.
+The gray dashed parallelogram splits $$\mathbf{x}$$ along them, $$\mathbf{x} = c_1\mathbf{v}_1 + c_2\mathbf{v}_2$$. Example:
 
-Example: $$(3,1) = 2\,(1,1) + 1\,(1,-1)$$, so $$\mathbf{c} = (2,1)$$.
+$$(1,0) = \tfrac12(1,1) + \tfrac12(1,-1), \qquad \mathbf{c} = (\tfrac12, \tfrac12)$$

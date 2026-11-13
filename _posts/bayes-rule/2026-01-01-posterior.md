@@ -1,16 +1,10 @@
 ---
 title: Posterior
-kind: tensor
-order: 1
+order: 5
 tex: 'p(\theta \mid x) = \frac{p(x \mid \theta)\,p(\theta)}{p(x)}'
 ---
+The blue curve: the updated belief about $$\theta$$.
 
-The updated belief about $$\theta$$ after seeing the data $$x$$.
+With a Beta prior the posterior is again a Beta, $$\mathrm{Beta}(2 + h, 2 + t)$$. In the example that is $$\mathrm{Beta}(9, 5)$$, with mean $$\tfrac{9}{14} \approx 0.643$$. That lies between the prior mean $$0.5$$ and the observed frequency $$0.7$$.
 
-Running example: a coin is either fair ($$\theta = 0.5$$) or biased towards heads ($$\theta = 0.9$$). You flip it once and see heads. The posterior is
-
-$$p(\text{fair} \mid H) = \tfrac{5}{14} \approx 0.36$$
-
-$$p(\text{biased} \mid H) = \tfrac{9}{14} \approx 0.64$$
-
-Today's posterior is tomorrow's prior: feeding it back in and observing more flips repeats the whole diagram.
+Add flips with the sliders: the data outweigh the prior, and the posterior narrows.

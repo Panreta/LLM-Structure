@@ -40,7 +40,7 @@
 {%- comment -%} Every entry in _data/diagrams.yml becomes one hidden <section>. {%- endcomment -%}
 <div id="diagram-data" hidden>
 {% for d in site.data.diagrams %}
-  <section data-id="{{ d.id | escape }}" data-labels="{{ d.labels | join: '|' | escape }}">
+  <section data-id="{{ d.id | escape }}" data-labels="{{ d.labels | join: '|' | escape }}" data-figure="{{ d.figure | escape }}">
     <h2 class="d-title">{{ d.title | escape }}</h2>
     <p class="d-desc">{{ d.description | escape }}</p>
   </section>
@@ -87,6 +87,7 @@ window.MathJax = {
 };
 </script>
 <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-svg.js"></script>
+<script defer src="assets/figures.js"></script>
 <script defer src="assets/app.js"></script>
 </body>
 </html>

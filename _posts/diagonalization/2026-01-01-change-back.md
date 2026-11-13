@@ -1,12 +1,8 @@
 ---
 title: Back to standard basis
-kind: layer
-order: 2
+order: 4
 tex: 'P\,(D\mathbf{c})'
 ---
+The blue dashed parallelogram adds the scaled components back together:
 
-The columns of $$P$$ are the eigenvectors $$\mathbf{v}_1, \dots, \mathbf{v}_n$$, so multiplying by $$P$$ rebuilds a vector from its eigen-coordinates:
-
-$$P\mathbf{c}^\prime = \sum_i c_i^\prime\,\mathbf{v}_i$$
-
-Example: $$6\,(1,1) + 1\,(1,-1) = (7,5)$$.
+$$3 \cdot \tfrac12(1,1) + 1 \cdot \tfrac12(1,-1) = (2, 1)$$
