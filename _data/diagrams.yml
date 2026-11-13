@@ -4,3 +4,28 @@
   title: Transformer wavefunction
   labels: [Large Language Model]
   description: "A transformer that outputs fermionic orbitals; a determinant turns them into an antisymmetric wavefunction."
+
+- id: riemann-integral
+  title: Riemann integral
+  labels: [Calculus]
+  description: "Area under a curve as the limit of rectangle sums, and the antiderivative shortcut that skips the limit."
+
+- id: diagonalization
+  title: Diagonalization
+  labels: [Linear Algebra]
+  description: "Apply a matrix by moving to its eigenbasis, scaling each coordinate, and moving back."
+
+- id: bayes-rule
+  title: Bayes' rule
+  labels: [Probability]
+  description: "Update a prior belief with data: multiply by the likelihood, then renormalize."
+
+- id: gradient-descent
+  title: Gradient descent
+  labels: [Optimization, Calculus]
+  description: "Walk downhill: step against the gradient again and again until it is nearly zero."
+
+- id: least-squares
+  title: Least squares
+  labels: [Linear Algebra, Optimization, Probability]
+  description: "Fit a line to data by minimizing squared error; the answer comes from a single linear solve."
