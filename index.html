@@ -13,22 +13,52 @@
 </head>
 <body>
 <div id="root">
-  <header class="top">
-    <h1>{{ site.title | escape }}</h1>
-    <p class="sub">{{ site.description | escape }}</p>
-  </header>
-  <main class="layout">
-    <section class="diagram" id="diagram" aria-label="Architecture diagram"></section>
-    <aside class="panel" id="panel" aria-label="Block details"></aside>
-  </main>
+  <div id="home" hidden>
+    <header class="top">
+      <h1 tabindex="-1">{{ site.title | escape }}</h1>
+      <p class="sub">{{ site.description | escape }}</p>
+    </header>
+    <p class="notice" id="notice" role="status" hidden></p>
+    <div class="chips" id="filters" role="group" aria-label="Filter diagrams by label"></div>
+    <div class="cards" id="cards"></div>
+  </div>
+  <div id="view" hidden>
+    <a class="back" href="#">&larr; All diagrams</a>
+    <header class="top view-head">
+      <div class="view-labels" id="view-labels"></div>
+      <h1 id="view-title" tabindex="-1"></h1>
+      <p class="sub" id="view-desc"></p>
+    </header>
+    <main class="layout">
+      <section class="diagram" id="diagram" aria-label="Diagram"></section>
+      <aside class="panel" id="panel" aria-label="Block details"></aside>
+    </main>
+  </div>
 </div>
 <div class="scrim" id="scrim" hidden></div>
 
-{%- comment -%} Every file in _posts becomes one hidden <article>. app.js reads them. {%- endcomment -%}
+{%- comment -%} Every entry in _data/diagrams.yml becomes one hidden <section>. {%- endcomment -%}
+<div id="diagram-data" hidden>
+{% for d in site.data.diagrams %}
+  <section data-id="{{ d.id | escape }}" data-labels="{{ d.labels | join: '|' | escape }}">
+    <h2 class="d-title">{{ d.title | escape }}</h2>
+    <p class="d-desc">{{ d.description | escape }}</p>
+  </section>
+{% endfor %}
+</div>
+
+{%- comment -%} Every file in _posts becomes one hidden <article>. Its diagram is the
+    `diagram:` front-matter field, else its folder (_posts/<id>/file.md), else "unsorted". {%- endcomment -%}
 {% assign blocks = site.posts | sort: "order", "last" %}
 <div id="blocks" hidden>
 {% for p in blocks %}
+  {% assign dg = p.diagram | default: "" | strip %}
+  {% if dg == "" %}
+    {% assign parts = p.path | split: "/" %}
+    {% if parts.size > 2 %}{% assign dg = parts[1] %}{% else %}{% assign dg = "unsorted" %}{% endif %}
+  {% endif %}
   <article data-id="{{ p.slug }}"
+           data-diagram="{{ dg | escape }}"
            data-kind="{{ p.kind | default: 'layer' }}"
            data-order="{{ p.order }}"
            data-tex="{{ p.tex | escape }}"

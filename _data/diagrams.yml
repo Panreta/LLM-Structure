@@ -1,0 +1,6 @@
+# One entry per diagram, in home-page order.
+# Blocks live in _posts/<id>/ (or set `diagram: <id>` in a block's front matter).
+- id: transformer-wavefunction
+  title: Transformer wavefunction
+  labels: [Large Language Model]
+  description: "A transformer that outputs fermionic orbitals; a determinant turns them into an antisymmetric wavefunction."

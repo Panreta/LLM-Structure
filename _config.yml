@@ -1,5 +1,5 @@
-title: Transformer wavefunction
-description: A transformer that outputs fermionic orbitals; a determinant turns them into an antisymmetric wavefunction. Tap any block for details.
+title: Mathematical visualizations
+description: Interactive diagrams across branches of mathematics. Pick a diagram, then tap any block for details.
 
 markdown: kramdown
 kramdown:

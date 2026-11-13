@@ -13,11 +13,43 @@
   }
 }
 *,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none!important}
 body{margin:0;background:var(--paper);color:var(--ink);font-family:"STIX Two Text","Times New Roman",Georgia,serif;font-size:17px;line-height:1.5;overflow-x:hidden}
 #root{max-width:1100px;margin:0 auto;padding:0 16px 48px}
 .top{padding:28px 0 8px}
 .top h1{margin:0;font-size:clamp(1.7rem,6vw,2.5rem);font-weight:600;line-height:1.15}
 .top .sub{margin:6px 0 0;color:var(--muted);max-width:60ch}
+.top h1:focus{outline:none}
+
+/* home: filter chips + diagram cards */
+.notice{margin:12px 0 0;padding:10px 14px;border-radius:12px;background:var(--surface);border:1.5px solid color-mix(in srgb,var(--ink) 20%,transparent);color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 4px}
+.chip{display:inline-flex;align-items:center;min-height:36px;padding:4px 14px;border:1.5px solid var(--rule);border-radius:999px;background:transparent;color:var(--ink);font:inherit;font-size:.95rem;line-height:1.2;text-decoration:none;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.chip-sm{min-height:28px;padding:2px 10px;font-size:.85rem}
+.chip-sm:hover{background:color-mix(in srgb,var(--layer) 55%,transparent)}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:16px;margin-top:16px}
+.card{display:flex;gap:16px;align-items:stretch;padding:16px 18px;border:1.5px solid color-mix(in srgb,var(--ink) 22%,transparent);border-radius:16px;background:var(--surface);color:var(--ink);text-decoration:none;transition:border-color .15s ease,transform .15s ease}
+.card:hover{border-color:var(--rule);transform:translateY(-1px)}
+.card-main{flex:1;min-width:0}
+.card-title{margin:6px 0 4px;font-size:1.35rem;font-weight:600;line-height:1.2}
+.card-desc{margin:0;color:var(--muted);font-size:.95rem}
+.card-count{margin:10px 0 0;font:600 .8rem system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--muted);letter-spacing:.02em}
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.tag{padding:1px 8px;border-radius:999px;background:var(--tensor);font:600 .72rem system-ui,-apple-system,"Segoe UI",sans-serif;letter-spacing:.03em;text-transform:uppercase}
+
+/* spine: a tiny vertical preview of a diagram, one bar per block */
+.spine{flex:none;width:48px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
+.spine span{display:block;width:80%;height:7px;border:1.5px solid var(--rule);border-radius:3px;background:var(--layer)}
+.spine .k-core{width:100%;height:11px;background:var(--core)}
+.spine .k-tensor{background:var(--tensor)}
+.spine .k-plain{width:55%;background:transparent;border-color:color-mix(in srgb,var(--ink) 35%,transparent);border-style:dashed}
+
+/* diagram view header */
+.back{display:inline-block;margin-top:20px;padding:4px 0;color:var(--focus);font:600 .9rem system-ui,-apple-system,"Segoe UI",sans-serif;text-decoration:none}
+.back:hover{text-decoration:underline}
+.view-head{padding-top:12px}
+.view-labels{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
 
 /* diagram */
 .diagram{position:relative;padding:20px 0 12px 56px}
@@ -25,14 +57,14 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:"STIX Two Tex
 .block{display:flex;flex-direction:column;align-items:center;gap:4px;width:86%;max-width:520px;border:2px solid var(--rule);border-radius:16px;padding:10px 14px;background:var(--layer);color:var(--ink);font:inherit;cursor:pointer;text-align:center;-webkit-tap-highlight-color:transparent}
 .block .label{font-size:1.25rem;line-height:1.2}
 .block .tex{max-width:100%;overflow-x:auto;overflow-y:hidden}
-.k-core{width:100%;max-width:600px;padding:22px 14px 18px;background:var(--core);position:relative}
-.k-core .label{font-size:2.1rem;font-weight:600}
-.k-core .tex{position:absolute;top:6px;right:12px;font-size:.85rem}
-.k-tensor{background:var(--tensor)}
-.k-plain{background:transparent;border-color:transparent;width:100%}
-.k-plain .label{font-size:1.4rem}
+.block.k-core{width:100%;max-width:600px;padding:22px 14px 18px;background:var(--core);position:relative}
+.block.k-core .label{font-size:2.1rem;font-weight:600}
+.block.k-core .tex{position:absolute;top:6px;right:12px;font-size:.85rem}
+.block.k-tensor{background:var(--tensor)}
+.block.k-plain{background:transparent;border-color:transparent;width:100%}
+.block.k-plain .label{font-size:1.4rem}
 .block[aria-pressed="true"]{outline:3px solid var(--focus);outline-offset:3px}
-.block:focus-visible,.rail:focus-visible .rail-label,.close:focus-visible,.edit-link:focus-visible{outline:3px dashed var(--focus);outline-offset:3px}
+.block:focus-visible,.rail:focus-visible .rail-label,.close:focus-visible,.edit-link:focus-visible,.chip:focus-visible,.card:focus-visible,.back:focus-visible{outline:3px dashed var(--focus);outline-offset:3px}
 .arrow{width:2px;height:30px;background:var(--rule);position:relative;flex:none}
 .arrow::before{content:"";position:absolute;top:-2px;left:50%;transform:translateX(-50%);border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:10px solid var(--rule)}
 
@@ -48,7 +80,6 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:"STIX Two Tex
 
 /* details panel: bottom sheet on phones, sticky column on desktop */
 .scrim{position:fixed;inset:0;background:var(--scrim);z-index:19}
-.scrim[hidden]{display:none}
 .panel{position:fixed;left:0;right:0;bottom:0;max-height:80vh;max-height:80dvh;overflow-y:auto;background:var(--surface);border-radius:20px 20px 0 0;padding:18px 20px calc(24px + env(safe-area-inset-bottom,0px));box-shadow:0 -10px 34px rgba(10,15,30,.22);transform:translateY(105%);visibility:hidden;transition:transform .25s ease,visibility 0s linear .25s;z-index:20}
 .panel.open{transform:none;visibility:visible;transition:transform .25s ease}
 .panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
