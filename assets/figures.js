@@ -143,7 +143,7 @@
     // controls is a list, or a function of the state (rebuilt when it changes)
     function ctls() { return typeof spec.controls === "function" ? spec.controls(state) : spec.controls || []; }
     ctls().forEach(function (c) { state[c.key] = c.value; });
-    if (spec.init) spec.init(state);
+    if (spec.init) spec.init(state, !!opts.thumb);
 
     var id = "figclip" + (++uid), box = spec.box || BOX;
     var wrap = div(opts.thumb ? "fig-thumb" : "figure");
@@ -168,6 +168,7 @@
     draw();
 
     function draw() {
+      box = spec.box || BOX;
       while (svg.lastChild) svg.removeChild(svg.lastChild);
       var cp = mk("clipPath", { id: id }, mk("defs", {}, svg));
       mk("rect", { x: box.l, y: box.t, width: W - box.l - box.r, height: H - box.t - box.b }, cp);
@@ -669,6 +670,262 @@
         return s.drag >= 0;
       }
       s.pts[s.drag] = [clamp(sc.ix(pt.x), -0.4, 5.4), clamp(sc.iy(pt.y), -0.2, 5)];
+    }
+  };
+
+  // High-dimensional geometry, one classical plot per chapter.
+  var HD = {};
+  HD.lgamma = function (z) {
+    if (z < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * z)) - HD.lgamma(1 - z);
+    var c = [0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313, -176.61502916214059,
+      12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
+    z -= 1;
+    var x = c[0], t = z + 7.5;
+    for (var i = 1; i < 9; i++) x += c[i] / (z + i);
+    return 0.5 * Math.log(2 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(x);
+  };
+  // Regularized lower incomplete gamma P(a, x) (series, or continued fraction).
+  HD.gammaP = function (a, x) {
+    if (x <= 0) return 0;
+    var lead = Math.exp(-x + a * Math.log(x) - HD.lgamma(a)), i;
+    if (x < a + 1) {
+      var ap = a, sum = 1 / a, del = sum;
+      for (i = 0; i < 1000; i++) { ap++; del *= x / ap; sum += del; if (Math.abs(del) < Math.abs(sum) * 1e-14) break; }
+      return sum * lead;
+    }
+    var b = x + 1 - a, c = 1e300, d = 1 / b, h = d;
+    for (i = 1; i < 1000; i++) {
+      var an = -i * (i - a);
+      b += 2;
+      d = an * d + b; if (Math.abs(d) < 1e-300) d = 1e-300;
+      c = b + an / c; if (Math.abs(c) < 1e-300) c = 1e-300;
+      d = 1 / d;
+      h *= d * c;
+      if (Math.abs(d * c - 1) < 1e-14) break;
+    }
+    return 1 - lead * h;
+  };
+  HD.vol = function (n) { return Math.exp(n / 2 * Math.log(Math.PI) - HD.lgamma(n / 2 + 1)); };
+  HD.rng = function (seed) {
+    var spare = null;
+    function u() {
+      seed = (seed + 0x6D2B79F5) | 0;
+      var t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    }
+    return function () {
+      if (spare !== null) { var s = spare; spare = null; return s; }
+      var r = Math.sqrt(-2 * Math.log(u() || 1e-12)), a = 2 * Math.PI * u();
+      spare = r * Math.sin(a);
+      return r * Math.cos(a);
+    };
+  };
+  // JL experiment: N Gaussian points in R^M and one fixed Gaussian matrix G.
+  // Projecting with the first n rows of G / √n gives Q; cum holds running
+  // sums of (G_k · d)² so every n costs one lookup per pair.
+  HD.JL = { M: 200, N: 30 };
+  HD.jl = function () {
+    var J = HD.JL;
+    if (J.cum) return J;
+    var rnd = HD.rng(11), M = J.M, N = J.N, i, j, k, l;
+    var pts = [], G = [];
+    for (i = 0; i < N; i++) { pts.push(new Float64Array(M)); for (l = 0; l < M; l++) pts[i][l] = rnd(); }
+    for (k = 0; k < M; k++) { G.push(new Float64Array(M)); for (l = 0; l < M; l++) G[k][l] = rnd(); }
+    J.pairs = N * (N - 1) / 2;
+    J.cum = new Float64Array(J.pairs * (M + 1));
+    J.len = new Float64Array(J.pairs);
+    var p = 0, d = new Float64Array(M);
+    for (i = 0; i < N; i++) for (j = i + 1; j < N; j++, p++) {
+      var L = 0;
+      for (l = 0; l < M; l++) { d[l] = pts[i][l] - pts[j][l]; L += d[l] * d[l]; }
+      J.len[p] = L;
+      var acc = 0, base = p * (M + 1);
+      for (k = 0; k < M; k++) {
+        var dot = 0, g = G[k];
+        for (l = 0; l < M; l++) dot += g[l] * d[l];
+        acc += dot * dot;
+        J.cum[base + k + 1] = acc;
+      }
+    }
+    return J;
+  };
+
+  function dimension(key, max, value) {
+    return { key: key, label: "Dimension", min: 2, max: max, step: 1, value: value, show: function (v) { return "n = " + v; } };
+  }
+  function eps(key, min, max, value) {
+    return { key: key, label: "Tolerance", min: min, max: max, step: 0.01, value: value, show: function (v) { return "ε = " + num(v); } };
+  }
+  HD.controls = {
+    "corner-spheres": [dimension("nBox", 12, 2)],
+    "ball-volume": [{ key: "nVol", label: "Dimension", min: 0, max: 20, step: 1, value: 3, show: function (v) { return "n = " + v; } }],
+    shell: [dimension("nShell", 200, 20), eps("epsShell", 0.01, 0.5, 0.1)],
+    "unit-norm": [dimension("nNorm", 300, 50), eps("epsNorm", 0.05, 0.9, 0.3)],
+    orthogonal: [dimension("nAng", 400, 3), eps("epsAng", 0.05, 0.9, 0.2)],
+    jl: [{ key: "nJL", label: "Target dim.", min: 2, max: 200, step: 1, value: 60, show: function (v) { return "n = " + v; } }, eps("epsJL", 0.1, 0.9, 0.5)]
+  };
+
+  // A density curve over [a, b], drawn and filled where keep(x) holds.
+  function density(p, g, sc, xs, ys, keep) {
+    var line = xs.map(function (x, i) { return [sc.x(x), sc.y(ys[i])]; });
+    if (keep) {
+      var run = [];
+      xs.forEach(function (x, i) {
+        if (keep(x)) run.push(i);
+        if ((!keep(x) || i === xs.length - 1) && run.length > 1) {
+          var poly = [[sc.x(xs[run[0]]), sc.y(0)]];
+          run.forEach(function (j) { poly.push([sc.x(xs[j]), sc.y(ys[j])]); });
+          poly.push([sc.x(xs[run[run.length - 1]]), sc.y(0)]);
+          p.poly(g, poly, "fill c-warm", true);
+        }
+        if (!keep(x)) run = [];
+      });
+    }
+    p.poly(g, line, "curve c-accent");
+    p.poly(g, line, "hit");
+  }
+
+  specs["high-dimension"] = {
+    alt: "Plots about high-dimensional space: spheres packed in a box, the volume of the unit ball by dimension, the radius distribution inside a ball, the length of a random Gaussian vector, the angle between two random vectors, and distances under a random projection.",
+    story: true,
+    controls: function (s) { return HD.controls[s.ch] || []; },
+    hint: "Each chapter has its own plot. Raise the dimension and watch the mass concentrate.",
+    init: function (s, thumb) {
+      s.ch = "corner-spheres";
+      for (var c in HD.controls) HD.controls[c].forEach(function (o) { s[o.key] = o.value; });
+      if (thumb) s.nBox = 10;
+    },
+    select: function (s, slug) {
+      if (!slug || slug === s.ch || !HD.controls[slug]) return false;
+      s.ch = slug;
+      this.box = slug === "corner-spheres" ? { l: 12, r: 12, t: 12, b: 12 } : BOX;
+      return true;
+    },
+    render: function (s, p) {
+      this.box = s.ch === "corner-spheres" ? { l: 12, r: 12, t: 12, b: 12 } : BOX;
+      return this[s.ch](s, p);
+    },
+    box: { l: 12, r: 12, t: 12, b: 12 },
+
+    // 2^n unit spheres at the corners (±1, …, ±1) of the box [−2, 2]^n.
+    "corner-spheres": function (s, p) {
+      var sc = scale([-3.3, 3.3], [-2.155, 2.155], this.box), X = sc.x, Y = sc.y, n = s.nBox, r = Math.sqrt(n) - 1;
+      var g = p.g(null, true);
+      p.rect(g, X(-2), Y(2), 4 * sc.sx, 4 * sc.sy, "bar");
+      [[1, 1], [1, -1], [-1, 1], [-1, -1]].forEach(function (c) {
+        p.circle(g, X(c[0]), Y(c[1]), sc.sx, "fill c-muted");
+        p.circle(g, X(c[0]), Y(c[1]), sc.sx, "curve thin c-muted");
+      });
+      p.circle(g, X(0), Y(0), Math.max(r, 0.005) * sc.sx, (r > 2 ? "fill c-warm" : "fill c-accent"));
+      p.circle(g, X(0), Y(0), Math.max(r, 0.005) * sc.sx, "curve " + (r > 2 ? "c-warm" : "c-accent"));
+      p.line(g, X(0), Y(0), X(1), Y(1), "curve thin c-muted dash");
+      p.circle(g, X(1), Y(1), 3, "dot");
+      p.circle(g, X(0), Y(0), 3, "dot");
+      p.label("cs-d", "\\sqrt{n}", X(0.5), Y(0.5), "nw");
+      p.label("cs-r", "r_n = \\sqrt{n} - 1", X(0), Math.min(Y(0) + Math.max(r, 0.3) * sc.sy + 4, Y(-2) - 34), "s");
+      p.label("cs-box", "[-2, 2]^n", X(2), Y(-2), "nw");
+      var fate = r < 1 ? "smaller than the corner spheres" : r === 1 ? "as large as the corner spheres" :
+        r < 2 ? "larger than the corner spheres, still inside the box" : r === 2 ? "touching the faces of the box" : "poking out of the box";
+      return "<i>n</i> = " + n + " &nbsp;·&nbsp; corner centers at distance √<i>n</i> = " + num(Math.sqrt(n), 3) +
+        " &nbsp;·&nbsp; inner sphere radius " + num(r, 3) + ": " + fate;
+    },
+
+    // V_n = π^{n/2} / Γ(n/2 + 1) for n = 0 … 20.
+    "ball-volume": function (s, p) {
+      var sc = scale([-0.9, 20.9], [0, 6.1]), X = sc.x, Y = sc.y, n = s.nVol, k;
+      var g = p.g(null);
+      for (k = 0; k <= 20; k++) {
+        var v = HD.vol(k);
+        p.rect(g, X(k - 0.38), Y(v), 0.76 * sc.sx, Y(0) - Y(v), k === n ? "fill c-accent" : "bar");
+        if (k === n) p.rect(g, X(k - 0.38), Y(v), 0.76 * sc.sx, Y(0) - Y(v), "curve thin c-accent");
+      }
+      p.axes(sc, { xticks: [0, 5, 10, 15, 20], yticks: [1, 2, 3, 4, 5, 6], xlabel: "n", ylabel: "V_n" });
+      if (n >= 2) {
+        var a = HD.vol(n - 2), b = HD.vol(n), top = Math.max(a, b) + 0.55;
+        p.path(g, "M" + X(n - 2) + " " + Y(a + 0.1) + " C" + X(n - 2) + " " + Y(top) + " " + X(n) + " " + Y(top) + " " + X(n) + " " + Y(b + 0.18), "curve thin c-warm");
+        p.label("bv-r" + n, "\\times \\tfrac{2\\pi}{" + n + "}", X(n - 1), (Y(a + 0.1) + Y(b + 0.18)) / 8 + 0.75 * Y(top) - 4, "n");
+      }
+      return "<i>V</i><sub>" + n + "</sub> = π<sup>" + n + "/2</sup> / Γ(" + n + "/2 + 1) = " + num(HD.vol(n), 4) +
+        (n >= 2 ? " &nbsp;·&nbsp; = (2π/" + n + ") · <i>V</i><sub>" + (n - 2) + "</sub>" : "") + " &nbsp;·&nbsp; largest at <i>n</i> = 5";
+    },
+
+    // Radius of a uniform point in the unit n-ball: density n r^{n−1}.
+    shell: function (s, p) {
+      var n = s.nShell, e = s.epsShell, xs = [], ys = [], i;
+      for (i = 0; i <= 400; i++) { var r = i / 400; xs.push(r); ys.push(n * Math.pow(r, n - 1)); }
+      var sc = scale([-0.08, 1.12], [0, n * 1.15]);
+      var g = p.g(null);
+      density(p, g, sc, xs, ys, function (r) { return r >= 1 - e - 1e-9; });
+      p.axes(sc, { xticks: [0.5, 1], xlabel: "r" });
+      p.label("sh-f", "p(r) = n r^{n-1}", sc.x(1), sc.y(n), "w");
+      p.label("sh-e", "1 - \\varepsilon", sc.x(1 - e), sc.y(0) + 4, "s");
+      var frac = 1 - Math.pow(1 - e, n);
+      return "share of the volume within ε = " + num(e) + " of the surface: 1 − (1 − ε)<sup><i>n</i></sup> = " + num(100 * frac, 1) + "%";
+    },
+
+    // ‖u‖² for u ~ N(0, I/n): n‖u‖² is χ²(n).
+    "unit-norm": function (s, p) {
+      var n = s.nNorm, e = s.epsNorm, xs = [], ys = [], i, top = 0;
+      var lc = -n / 2 * Math.log(2) - HD.lgamma(n / 2) + Math.log(n);
+      for (i = 1; i <= 500; i++) {
+        var x = i / 500 * 2.6, y = n * x, f = Math.exp(lc + (n / 2 - 1) * Math.log(y) - y / 2);
+        xs.push(x); ys.push(f); top = Math.max(top, f);
+      }
+      top = Math.min(Math.max(top, 1.2), 12);
+      var sc = scale([-0.15, 2.75], [0, top * 1.15]);
+      var g = p.g(null, true);
+      density(p, g, sc, xs, ys.map(function (v) { return Math.min(v, top * 1.2); }), function (x) { return Math.abs(x - 1) >= e; });
+      p.axes(sc, { xticks: [1, 2], xlabel: "\\lVert u \\rVert^2" });
+      p.line(p.g(null), sc.x(1), sc.y(0), sc.x(1), sc.y(top * 1.1), "curve thin c-muted dash");
+      p.label("un-l", "1 - \\varepsilon", sc.x(1 - e), sc.y(0) + 4, "s");
+      p.label("un-r", "1 + \\varepsilon", sc.x(1 + e), sc.y(0) + 4, "s");
+      var tail = HD.gammaP(n / 2, n * (1 - e) / 2) + 1 - HD.gammaP(n / 2, n * (1 + e) / 2);
+      var bound = 2 * Math.exp(-n * e * e / 8);
+      return "P(|‖<i>u</i>‖² − 1| ≥ ε) = " + sci(Math.max(tail, 1e-300)) + " &nbsp;·&nbsp; Chernoff bound 2e<sup>−<i>n</i>ε²/8</sup> = " +
+        (bound >= 1 ? num(bound, 3) + " (no information yet)" : sci(bound));
+    },
+
+    // Angle between two independent uniform directions: density ∝ sin^{n−2} θ.
+    orthogonal: function (s, p) {
+      var n = s.nAng, e = s.epsAng, N = 720, xs = [], ys = [], i, Z = 0, out = 0, top = 0;
+      for (i = 0; i <= N; i++) {
+        var t = i / N * Math.PI, w = n === 2 ? 1 : Math.exp((n - 2) * Math.log(Math.max(Math.sin(t), 1e-300)));
+        xs.push(t * 180 / Math.PI); ys.push(w); Z += w;
+        if (Math.abs(Math.cos(t)) >= e) out += w;
+      }
+      ys = ys.map(function (w) { var v = w / (Z * 0.25); top = Math.max(top, v); return v; });
+      var sc = scale([-12, 196], [0, top * 1.18]);
+      var g = p.g(null, true), lo = Math.acos(e) * 180 / Math.PI;
+      density(p, g, sc, xs, ys, function (d) { return d <= lo || d >= 180 - lo; });
+      p.axes(sc, { xticks: [0, 45, 90, 135, 180], xlabel: "\\theta^\\circ" });
+      p.line(g, sc.x(lo), sc.y(0), sc.x(lo), sc.y(top * 1.08), "curve thin c-muted dash");
+      p.label("or-l", "\\cos\\theta = \\varepsilon", sc.x(lo), sc.y(top * 1.08), "nw");
+      return "P(|cos θ| ≥ ε) = " + sci(Math.max(out / Z, 1e-300)) + " &nbsp;·&nbsp; Gaussian bound 4e<sup>−<i>n</i>ε²/8</sup> = " +
+        (4 * Math.exp(-n * e * e / 8) >= 1 ? num(4 * Math.exp(-n * e * e / 8), 2) + " (no information yet)" : sci(4 * Math.exp(-n * e * e / 8)));
+    },
+
+    // Squared-distance ratios ‖Q(v_i − v_j)‖² / ‖v_i − v_j‖² after a random projection.
+    jl: function (s, p) {
+      var J = HD.jl(), n = s.nJL, e = s.epsJL, B = 52, w = 0.05, bins = [], i, inside = 0, worst = 0;
+      for (i = 0; i < B; i++) bins.push(0);
+      for (var q = 0; q < J.pairs; q++) {
+        var ratio = J.cum[q * (J.M + 1) + n] / n / J.len[q];
+        bins[Math.min(B - 1, Math.floor(ratio / w))]++;
+        if (Math.abs(ratio - 1) <= e) inside++;
+        worst = Math.max(worst, Math.abs(ratio - 1));
+      }
+      var hmax = Math.max.apply(null, bins), sc = scale([-0.12, 2.72], [0, hmax * 1.18]);
+      var gb = p.g(null);
+      p.rect(gb, sc.x(1 - e), sc.y(hmax * 1.15), (2 * e) * sc.sx, sc.y(0) - sc.y(hmax * 1.15), "fill c-warm");
+      bins.forEach(function (c, k) { if (c) p.rect(gb, sc.x(k * w), sc.y(c), w * sc.sx, sc.y(0) - sc.y(c), "fill c-accent"); });
+      bins.forEach(function (c, k) { if (c) p.rect(gb, sc.x(k * w), sc.y(c), w * sc.sx, sc.y(0) - sc.y(c), "curve thin c-accent"); });
+      p.axes(sc, { xticks: [1, 2], xlabel: "\\frac{\\lVert Qv_i - Qv_j \\rVert^2}{\\lVert v_i - v_j \\rVert^2}" });
+      p.label("jl-l", "1 - \\varepsilon", sc.x(1 - e), sc.y(0) + 4, "s");
+      p.label("jl-r", "1 + \\varepsilon", sc.x(1 + e), sc.y(0) + 4, "s");
+      var need = Math.ceil(24 * Math.log(J.N) / (e * e));
+      return J.pairs + " pairs of " + J.N + " points in ℝ<sup>" + J.M + "</sup> projected to ℝ<sup>" + n + "</sup> &nbsp;·&nbsp; " + inside + " within 1 ± ε, worst distortion " +
+        num(worst, 2) + " &nbsp;·&nbsp; the lemma guarantees all of them once <i>n</i> ≥ 24 ln <i>N</i>/ε² = " + need;
     }
   };
 

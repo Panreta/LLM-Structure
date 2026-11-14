@@ -34,3 +34,9 @@
   labels: [Linear Algebra, Optimization, Probability]
   figure: least-squares
   description: "Fit a line to points by minimizing the total area of the residual squares; drag the points."
+
+- id: high-dimension
+  title: High-dimensional geometry
+  labels: [Probability, Geometry]
+  figure: high-dimension
+  description: "Why a high-dimensional ball keeps its mass on the shell, why random vectors are nearly orthogonal, and how that gives the Johnson–Lindenstrauss lemma."
