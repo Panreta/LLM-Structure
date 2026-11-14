@@ -1309,5 +1309,173 @@
     }
   };
 
+  // Rotary position embedding: f(q, m) = q e^{i m θ}, read in the complex plane.
+  var RO = {};
+  RO.rot = function (v, a) { var c = Math.cos(a), s = Math.sin(a); return [c * v[0] - s * v[1], s * v[0] + c * v[1]]; };
+  RO.dot = function (u, v) { return u[0] * v[0] + u[1] * v[1]; };
+  RO.len = function (v) { return Math.sqrt(v[0] * v[0] + v[1] * v[1]); };
+  RO.ang = function (v) { return Math.atan2(v[1], v[0]); };
+  RO.tex = function (v) { return num(v, 2).replace("−", "-"); };
+  var THETA = { key: "theta", label: "Angle θ", min: 0.05, max: 1.2, step: 0.01, value: 0.4, show: function (v) { return "θ = " + num(v) + " rad"; } };
+  function posn(key, label, value) { return { key: key, label: label, min: 0, max: 15, step: 1, value: value, show: function (v) { return key + " = " + v; } }; }
+  RO.controls = {
+    "relative-position": [THETA],
+    length: [posn("m", "Position", 3), THETA],
+    angle: [posn("m", "Position", 3), THETA],
+    "embedding-form": [posn("m", "Query position", 5), posn("n", "Key position", 2), THETA],
+    frequencies: [
+      { key: "pos", label: "Position", min: 0, max: 500, step: 1, value: 10, show: function (v) { return "m = " + v; } },
+      { key: "dim", label: "Head size", min: 8, max: 128, step: 8, value: 64, show: function (v) { return "d = " + v; } }
+    ]
+  };
+  RO.plane = { length: 1, angle: 1, "embedding-form": 1 };
+
+  specs.rope = {
+    alt: "Figures for rotary position embedding: a heatmap of attention scores that is constant along diagonals, query and key vectors rotating in the complex plane, and a grid of dials turning at different frequencies.",
+    story: true,
+    controls: function (s) { return RO.controls[s.ch] || []; },
+    init: function (s) {
+      s.ch = "relative-position";
+      for (var c in RO.controls) RO.controls[c].forEach(function (o) { s[o.key] = o.value; });
+      s.q = [1.25, 0.3];
+      s.k = [0.55, 0.95];
+      this.box = BOX;
+    },
+    select: function (s, slug) {
+      if (!slug || slug === s.ch || !RO.controls[slug]) return false;
+      s.ch = slug;
+      this.box = RO.plane[slug] || slug === "frequencies" ? { l: 12, r: 12, t: 12, b: 12 } : BOX;
+      return true;
+    },
+    render: function (s, p) { return this[s.ch](s, p); },
+    drag: function (s, pt, phase) {
+      var sc = this.sc;
+      if (!sc || !RO.plane[s.ch]) return false;
+      if (phase === "start") {
+        s.drag = null;
+        var best = 30;
+        ["q", "k"].forEach(function (key) {
+          var v = s[key], d = Math.abs(pt.x - sc.x(v[0])) + Math.abs(pt.y - sc.y(v[1]));
+          if (d < best) { best = d; s.drag = key; }
+        });
+        return !!s.drag;
+      }
+      var v = [sc.ix(pt.x), sc.iy(pt.y)], r = RO.len(v);
+      if (r > 1.6) v = [v[0] * 1.6 / r, v[1] * 1.6 / r];
+      if (r < 0.15) v = [v[0] * 0.15 / (r || 1), v[1] * 0.15 / (r || 1)];
+      s[s.drag] = v;
+    },
+
+    // Scores ⟨f(q, m), f(k, n)⟩ for m, n = 0 … 15: constant along diagonals.
+    "relative-position": function (s, p) {
+      var N = 16, cell = 21, x0 = 300 - N * cell / 2 + 20, y0 = 26, i, j, top = RO.len(s.q) * RO.len(s.k);
+      var g = p.g(null);
+      for (i = 0; i < N; i++) for (j = 0; j < N; j++) {
+        var v = RO.dot(RO.rot(s.q, i * s.theta), RO.rot(s.k, j * s.theta)) / top;
+        var e = p.rect(g, x0 + j * cell, y0 + i * cell, cell - 1, cell - 1, "cell");
+        e.style.fill = "color-mix(in srgb, var(" + (v >= 0 ? "--focus" : "--warm") + ") " + Math.round(Math.abs(v) * 85) + "%, var(--surface))";
+      }
+      for (i = 0; i < N; i += 5) {
+        p.text(g, x0 - 8, y0 + i * cell + cell / 2 + 5, String(i), "end");
+        p.text(g, x0 + i * cell + cell / 2, y0 + N * cell + 18, String(i));
+      }
+      p.poly(g, [[x0, y0], [x0 + N * cell, y0 + N * cell]], "curve thin c-muted dash");
+      p.label("rp-m", "m", x0 - 30, y0 + N * cell / 2, "w");
+      p.label("rp-n", "n", x0 + N * cell / 2, y0 + N * cell + 24, "s");
+      return "cell (<i>m</i>, <i>n</i>) is the score ⟨<i>f</i>(<i>q</i>, <i>m</i>), <i>f</i>(<i>k</i>, <i>n</i>)⟩ for query position <i>m</i> and key position <i>n</i>: blue positive, brown negative &nbsp;·&nbsp; every diagonal <i>m</i> − <i>n</i> = const has one color: the score depends only on the relative position";
+    },
+
+    // Rotating keeps lengths: f(q, m) stays on the circle of radius ‖q‖.
+    length: function (s, p) {
+      var sc = this.sc = scale([-2.6, 2.6], [-1.697, 1.697], this.box), X = sc.x, Y = sc.y, m = s.m, a = m * s.theta;
+      var fq = RO.rot(s.q, a), fk = RO.rot(s.k, a), g0 = p.g(null);
+      p.line(g0, X(-2.6), Y(0), X(2.6), Y(0), "axisline");
+      p.line(g0, X(0), Y(-1.7), X(0), Y(1.7), "axisline");
+      p.label("ln-re", "\\text{Re}", X(2.55), Y(0) + 4, "sw");
+      p.label("ln-im", "\\text{Im}", X(0) + 6, Y(1.65), "se");
+      var gc = p.g(null);
+      p.circle(gc, X(0), Y(0), RO.len(s.q) * sc.sx, "curve thin c-accent dash");
+      p.circle(gc, X(0), Y(0), RO.len(s.k) * sc.sx, "curve thin c-warm dash");
+      var gv = p.g(null);
+      p.arrow(gv, X(0), Y(0), X(s.q[0]), Y(s.q[1]), "c-muted");
+      p.arrow(gv, X(0), Y(0), X(s.k[0]), Y(s.k[1]), "c-muted");
+      p.arrow(gv, X(0), Y(0), X(fq[0]), Y(fq[1]), "c-accent");
+      p.arrow(gv, X(0), Y(0), X(fk[0]), Y(fk[1]), "c-warm");
+      p.circle(gv, X(s.q[0]), Y(s.q[1]), 14, "hitc");
+      p.circle(gv, X(s.k[0]), Y(s.k[1]), 14, "hitc");
+      p.label("ln-q", "q", X(s.q[0]), Y(s.q[1]), "e");
+      p.label("ln-k", "k", X(s.k[0]), Y(s.k[1]), "e");
+      p.label("ln-fq", "f(q, m)", X(fq[0]), Y(fq[1]), fq[0] >= 0 ? "ne" : "nw");
+      p.label("ln-fk", "f(k, m)", X(fk[0]), Y(fk[1]), fk[0] >= 0 ? "ne" : "nw");
+      return "‖<i>q</i>‖ = " + num(RO.len(s.q)) + ", ‖<i>f</i>(<i>q</i>, " + m + ")‖ = " + num(RO.len(fq)) + " &nbsp;·&nbsp; ‖<i>k</i>‖ = " + num(RO.len(s.k)) +
+        ", ‖<i>f</i>(<i>k</i>, " + m + ")‖ = " + num(RO.len(fk)) + " &nbsp;·&nbsp; <i>R<sub>f</sub></i>(·, <i>m</i>) = ‖·‖ for every <i>m</i>. Drag <i>q</i> and <i>k</i>.";
+    },
+
+    // Each position adds the same angle θ: φ(m) = mθ, the same for q and k.
+    angle: function (s, p) {
+      var sc = this.sc = scale([-2.6, 2.6], [-1.697, 1.697], this.box), X = sc.x, Y = sc.y, m = s.m, th = s.theta, j;
+      var g0 = p.g(null);
+      p.line(g0, X(-2.6), Y(0), X(2.6), Y(0), "axisline");
+      p.line(g0, X(0), Y(-1.7), X(0), Y(1.7), "axisline");
+      [["q", "c-accent"], ["k", "c-warm"]].forEach(function (t) {
+        var v = s[t[0]], r = RO.len(v), a0 = RO.ang(v), gp = p.g(null), arc = [];
+        for (j = 0; j <= 60; j++) { var a = a0 + m * th * j / 60; arc.push([X(r * Math.cos(a)), Y(r * Math.sin(a))]); }
+        if (m > 0) p.poly(gp, arc, "curve thin " + t[1]);
+        for (j = 0; j <= m; j++) { var w = RO.rot(v, j * th); p.circle(gp, X(w[0]), Y(w[1]), j === m ? 5 : 3, "dot " + t[1]); }
+        var fv = RO.rot(v, m * th);
+        p.arrow(gp, X(0), Y(0), X(v[0]), Y(v[1]), "c-muted");
+        p.arrow(gp, X(0), Y(0), X(fv[0]), Y(fv[1]), t[1]);
+        p.circle(gp, X(v[0]), Y(v[1]), 14, "hitc");
+        p.label("an-" + t[0], t[0], X(v[0]), Y(v[1]), "e");
+      });
+      var fq = RO.rot(s.q, m * th), fk = RO.rot(s.k, m * th);
+      var d0 = RO.ang(s.k) - RO.ang(s.q), d1 = RO.ang(fk) - RO.ang(fq), wrap = function (a) { return Math.atan2(Math.sin(a), Math.cos(a)); };
+      return "φ(" + m + ") = " + m + "θ = " + num(m * th) + " rad for both vectors &nbsp;·&nbsp; angle from <i>q</i> to <i>k</i>: " + num(wrap(d0)) + " before, " + num(wrap(d1)) +
+        " after rotating both to position " + m + ". Drag <i>q</i> and <i>k</i>.";
+    },
+
+    // The full picture: q at position m, k at position n.
+    "embedding-form": function (s, p) {
+      var sc = this.sc = scale([-2.6, 2.6], [-1.697, 1.697], this.box), X = sc.x, Y = sc.y, th = s.theta;
+      var fq = RO.rot(s.q, s.m * th), fk = RO.rot(s.k, s.n * th), g0 = p.g(null);
+      p.line(g0, X(-2.6), Y(0), X(2.6), Y(0), "axisline");
+      p.line(g0, X(0), Y(-1.7), X(0), Y(1.7), "axisline");
+      var gw = p.g(null), a1 = RO.ang(fq), a2 = RO.ang(fk), da = Math.atan2(Math.sin(a2 - a1), Math.cos(a2 - a1)), arc = [], j;
+      for (j = 0; j <= 40; j++) { var a = a1 + da * j / 40; arc.push([X(0.45 * Math.cos(a)), Y(0.45 * Math.sin(a))]); }
+      p.poly(gw, arc, "curve thin");
+      var gv = p.g(null);
+      p.arrow(gv, X(0), Y(0), X(s.q[0]), Y(s.q[1]), "c-muted");
+      p.arrow(gv, X(0), Y(0), X(s.k[0]), Y(s.k[1]), "c-muted");
+      p.arrow(gv, X(0), Y(0), X(fq[0]), Y(fq[1]), "c-accent");
+      p.arrow(gv, X(0), Y(0), X(fk[0]), Y(fk[1]), "c-warm");
+      p.circle(gv, X(s.q[0]), Y(s.q[1]), 14, "hitc");
+      p.circle(gv, X(s.k[0]), Y(s.k[1]), 14, "hitc");
+      p.label("ef-q", "q", X(s.q[0]), Y(s.q[1]), "e");
+      p.label("ef-k", "k", X(s.k[0]), Y(s.k[1]), "e");
+      p.label("ef-fq", "q\\,e^{\\hat i m\\theta}", X(fq[0]), Y(fq[1]), fq[0] >= 0 ? "ne" : "nw");
+      p.label("ef-fk", "k\\,e^{\\hat i n\\theta}", X(fk[0]), Y(fk[1]), fk[0] >= 0 ? "ne" : "nw");
+      var score = RO.dot(fq, fk), plain = s.q[0] * s.k[0] + s.q[1] * s.k[1], qk = [s.q[0] * s.k[0] + s.q[1] * s.k[1], s.q[1] * s.k[0] - s.q[0] * s.k[1]];
+      var viaG = RO.rot(qk, (s.m - s.n) * th)[0], c = Math.cos(s.m * th), sn = Math.sin(s.m * th);
+      return "rotation for <i>m</i> = " + s.m + ": [[" + num(c) + ", " + num(-sn) + "], [" + num(sn) + ", " + num(c) + "]] &nbsp;·&nbsp; ⟨<i>f</i>(<i>q</i>, " + s.m + "), <i>f</i>(<i>k</i>, " + s.n + ")⟩ = " + num(score, 3) +
+        " = Re(<i>qk</i>* e<sup><i>i</i>(" + (s.m - s.n) + ")θ</sup>) = " + num(viaG, 3) + " &nbsp;·&nbsp; without positions ⟨<i>q</i>, <i>k</i>⟩ = " + num(plain, 3) + ". Move <i>m</i> and <i>n</i> together: the score stays.";
+    },
+
+    // One dial per pair i: the hand turns by θ_i = 10000^{-2(i-1)/d} per position.
+    frequencies: function (s, p) {
+      var pairs = s.dim / 2, cols = pairs <= 8 ? pairs : pairs <= 32 ? 8 : 16, rows = Math.ceil(pairs / cols);
+      var cw = 576 / cols, ch = Math.min(cw, 352 / rows), r = Math.min(cw, ch) * 0.38, g = p.g(null), i;
+      for (i = 0; i < pairs; i++) {
+        var th = Math.pow(10000, -2 * i / s.dim), a = s.pos * th, cx = 12 + cw * (i % cols + 0.5), cy = 16 + ch * (Math.floor(i / cols) + 0.5);
+        p.circle(g, cx, cy, r, "curve thin c-muted");
+        p.line(g, cx, cy, cx + r * Math.cos(-a), cy + r * Math.sin(-a), "curve " + (i < pairs / 4 ? "c-accent" : i < pairs / 2 ? "" : "c-warm"));
+        p.line(g, cx + r, cy, cx + r + 4, cy, "tick");
+        if (r > 14 && (i % (cols / 4 || 1) === 0 || cols <= 8)) p.text(g, cx, cy + r + 15, "i = " + (i + 1));
+      }
+      var wl = function (k) { return 2 * Math.PI * Math.pow(10000, 2 * k / s.dim); };
+      return "dial <i>i</i> turns θ<sub><i>i</i></sub> = 10000<sup>−2(<i>i</i>−1)/<i>d</i></sup> per position &nbsp;·&nbsp; full turn every " + num(wl(0), 1) + " positions for <i>i</i> = 1, every " +
+        Math.round(wl(pairs - 1)).toLocaleString("en-US") + " for <i>i</i> = " + pairs + " &nbsp;·&nbsp; the fast dials tell nearby positions apart, the slow ones distant ones";
+    }
+  };
+
   window.Figures = { specs: specs, mount: mount };
 })();

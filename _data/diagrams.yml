@@ -46,3 +46,9 @@
   labels: [Large Language Model, Optimization]
   figure: grpo
   description: "The objective behind DeepSeek-R1, built step by step: Markov decision processes, the trust-region problem, TRPO, PPO, and what GRPO changes."
+
+- id: rope
+  title: Rotary position embedding
+  labels: [Large Language Model, Linear Algebra]
+  figure: rope
+  description: "Derive RoPE from one requirement, that attention scores depend only on relative position: lengths stay, angles turn by mθ."
