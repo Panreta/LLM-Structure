@@ -78,6 +78,8 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:"STIX Two Tex
 .fig .contour{fill:none;stroke:color-mix(in srgb,var(--hl,var(--ink)) 38%,transparent);stroke-width:1.3}
 .fig .hit{fill:none;stroke:transparent;stroke-width:16}
 .fig .hitc{fill:transparent;stroke:none}
+.gc-canvas{position:absolute;inset:0;width:100%;height:100%;cursor:grab;touch-action:none}
+.gc-canvas:active{cursor:grabbing}
 .fig .pt{fill:var(--c,var(--ink));fill-opacity:.55;stroke:none}
 .fig .part{cursor:pointer}
 .fig .part.on{--hl:var(--focus);filter:drop-shadow(0 0 3px color-mix(in srgb,var(--focus) 55%,transparent))}

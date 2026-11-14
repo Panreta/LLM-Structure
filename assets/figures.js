@@ -2230,6 +2230,80 @@
     var f = 1; for (var k = 2; k <= n; k++) f *= k;
     return Math.pow(w / Math.PI, 0.25) / Math.sqrt(Math.pow(2, n) * f) * ND.hermite(n, Math.sqrt(w) * x) * Math.exp(-w * x * x / 2);
   };
+  // Rotatable 3-D point cloud drawn on a canvas laid over the figure's stage
+  // (adapted from gaussian-cloud.js). One per stage; it animates only while
+  // its block is shown.
+  ND.gauss = function () {
+    var u = 1 - Math.random(), v = Math.random();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  };
+  ND.sample = function (n) {
+    var pts = [], c = [0, 0, 0];
+    for (var i = 0; i < n; i++) {
+      var x = ND.gauss(), y = ND.gauss(), z = ND.gauss(), r = Math.sqrt(x * x + y * y + z * z);
+      pts.push([x, y, z, r]);
+      if (r < 1) c[0]++; if (r < 2) c[1]++; if (r < 3) c[2]++;
+    }
+    return { pts: pts, inside: c.map(function (k) { return k / n; }) };
+  };
+  ND.widget = function (stage) {
+    if (stage._gc) return stage._gc;
+    var cv = document.createElement("canvas"), ctx = cv.getContext("2d");
+    cv.className = "gc-canvas";
+    stage.insertBefore(cv, stage.querySelector(".fig-labels"));
+    var g = { cv: cv, active: false, running: false, spin: true, ay: 0.5, ax: -0.35, pts: [] }, drag = false, lx = 0, ly = 0, W = 0, H = 0;
+    cv.addEventListener("pointerdown", function (e) { drag = true; lx = e.clientX; ly = e.clientY; cv.setPointerCapture(e.pointerId); });
+    cv.addEventListener("pointermove", function (e) {
+      if (!drag) return;
+      g.ay += (e.clientX - lx) * 0.01;
+      g.ax = Math.max(-1.5, Math.min(1.5, g.ax + (e.clientY - ly) * 0.01));
+      lx = e.clientX; ly = e.clientY;
+    });
+    cv.addEventListener("pointerup", function () { drag = false; });
+    cv.addEventListener("pointercancel", function () { drag = false; });
+    function size() {
+      var dpr = window.devicePixelRatio || 1, w = stage.clientWidth, h = stage.clientHeight;
+      if (w !== W || h !== H) { W = w; H = h; cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
+    }
+    function frame() {
+      if (!g.active || !cv.isConnected || !cv.offsetParent) { g.running = false; return; }
+      size();
+      if (g.spin && !drag) g.ay += 0.004;
+      var css = getComputedStyle(stage), col = function (n) { return css.getPropertyValue(n).trim(); };
+      var focus = col("--focus"), ink = col("--ink"), warm = col("--warm"), muted = col("--muted");
+      ctx.clearRect(0, 0, W, H);
+      var sc = Math.min(W, H) / 7.4, cx = W / 2, cy = H / 2;
+      var cY = Math.cos(g.ay), sY = Math.sin(g.ay), cX = Math.cos(g.ax), sX = Math.sin(g.ax);
+      // Rotate about y, then about x; sort back to front so near points draw on top.
+      var proj = g.pts.map(function (q) {
+        var x = q[0] * cY + q[2] * sY, z = -q[0] * sY + q[2] * cY, y = q[1] * cX - z * sX;
+        return [x, y, q[1] * sX + z * cX, q[3]];
+      }).sort(function (a, b) { return a[2] - b[2]; });
+      ctx.setLineDash([4, 5]); ctx.lineWidth = 1; ctx.strokeStyle = muted; ctx.fillStyle = muted;
+      ctx.font = "13px system-ui, sans-serif";
+      [1, 2, 3].forEach(function (k) {
+        ctx.beginPath(); ctx.arc(cx, cy, k * sc, 0, 2 * Math.PI); ctx.stroke();
+        ctx.fillText(k + "σ", cx + k * sc * 0.707 + 4, cy - k * sc * 0.707 - 4);
+      });
+      ctx.setLineDash([]);
+      for (var i = 0; i < proj.length; i++) {
+        var q = proj[i], d = (q[2] + 3.5) / 7;
+        ctx.globalAlpha = Math.max(0.15, Math.min(0.9, 0.25 + 0.6 * d)) * (q[3] < 1 ? 1 : q[3] < 2 ? 0.7 : 0.85);
+        ctx.fillStyle = q[3] < 1 ? focus : q[3] < 2 ? ink : warm;
+        ctx.beginPath(); ctx.arc(cx + q[0] * sc, cy - q[1] * sc, 1.1 + 0.9 * d, 0, 2 * Math.PI); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      requestAnimationFrame(frame);
+    }
+    g.show = function (on) {
+      g.active = on;
+      cv.hidden = !on;
+      if (on && !g.running) { g.running = true; requestAnimationFrame(frame); }
+    };
+    stage._gc = g;
+    return g;
+  };
+
   ND.controls = {
     "one-dimension": [
       { key: "mu", label: "Mean", min: -2, max: 2, step: 0.05, value: 0, show: function (v) { return "μ = " + num(v); } },
@@ -2240,13 +2314,47 @@
       { key: "s2", label: "σ₂", min: 0.3, max: 1.2, step: 0.05, value: 0.6, show: function (v) { return "σ₂ = " + num(v); } },
       { key: "rho", label: "Correlation", min: -0.9, max: 0.9, step: 0.05, value: 0.5, show: function (v) { return "ρ = " + num(v); } }
     ],
-    "three-dimension": [{ key: "npts", label: "Samples", min: 500, max: 4000, step: 100, value: 3000, show: function (v) { return v + " points"; } }],
+    "three-dimension": [
+      { key: "npts", label: "Points", min: 1000, max: 12000, step: 500, value: 5000, show: function (v) { return String(v); } },
+      { key: "spin", label: "Rotation", type: "choice", value: "on", options: [["on", "Rotating"], ["off", "Paused"]] }
+    ],
     "n-dimension": [{ key: "nd", label: "Dimension", min: 1, max: 100, step: 1, value: 3, show: function (v) { return "n = " + v; } }],
     quantum: [{ key: "om", label: "Trap frequency", min: 0.5, max: 2, step: 0.05, value: 1, show: function (v) { return "ω = " + num(v); } }]
   };
   ND.wide = { "two-dimension": 1, "three-dimension": 1 };
 
   specs.normal = {
+    // Card cover: a static view of the cloud.
+    cover: function (p) {
+      var s = { npts: 3000 };
+      var sc = scale([-4.6, 4.6], [-3.003, 3.003], this.box), X = sc.x, Y = sc.y, pts = ND.cloud().slice(0, s.npts), gb = p.g(null, true);
+      [[3, 5], [2, 7], [1, 12]].forEach(function (b) {
+        var e = p.circle(gb, X(0), Y(0), b[0] * sc.sx, "cell");
+        e.style.fill = "color-mix(in srgb, var(--focus) " + b[1] + "%, transparent)";
+      });
+      var g = p.g(null, true);
+      var c = Math.cos(0.5), sn = Math.sin(0.5), ct = Math.cos(0.35), st = Math.sin(0.35);
+      var order = pts.map(function (q) {
+        var x = c * q.v[0] + sn * q.v[2], z = -sn * q.v[0] + c * q.v[2], y = ct * q.v[1] - st * z;
+        return { x: x, y: y, r: q.r };
+      }).sort(function (u, v) { return v.r - u.r; });
+      order.forEach(function (q) {
+        var e = p.circle(g, X(q.x), Y(q.y), q.r <= 1 ? 1.9 : 1.6, "pt");
+        e.style.setProperty("--c", q.r <= 1 ? "var(--focus)" : q.r <= 2 ? "var(--ink)" : "var(--warm)");
+        if (q.r > 1) e.style.fillOpacity = q.r <= 2 ? "0.35" : "0.6";
+      });
+      var gs = p.g(null), cnt = [0, 0, 0, 0];
+      pts.forEach(function (q) { cnt[q.r <= 1 ? 0 : q.r <= 2 ? 1 : q.r <= 3 ? 2 : 3]++; });
+      [1, 2, 3].forEach(function (k) {
+        p.circle(gs, X(0), Y(0), k * sc.sx, "curve thin c-muted dash");
+        p.label("th-" + k, "r = " + k + "\\sigma", X(0) + k * sc.sx * 0.72 + 4, Y(0) - k * sc.sx * 0.72 - 2, "ne");
+      });
+      p.label("th-f", "p(\\mathbf{x}) = (2\\pi)^{-3/2} e^{-\\lVert\\mathbf{x}\\rVert^2/2}", X(-4.45), Y(2.9), "se");
+      var vol = function (r) { return 4 / 3 * Math.PI * r * r * r; }, N = pts.length;
+      var dens = [cnt[0] / N / vol(1), cnt[1] / N / (vol(2) - vol(1)), cnt[2] / N / (vol(3) - vol(2))];
+      return "points in the core <i>r</i> ≤ 1: " + num(100 * cnt[0] / N, 1) + "% (theory " + num(100 * ND.inside(3, 1), 1) + "%), shell 1–2: " + num(100 * cnt[1] / N, 1) + "%, shell 2–3: " + num(100 * cnt[2] / N, 1) + "%, beyond: " + num(100 * cnt[3] / N, 1) + "%" +
+        " &nbsp;·&nbsp; points per unit volume: " + num(100 * dens[0], 2) + "%, " + num(100 * dens[1], 2) + "%, " + num(100 * dens[2], 3) + "%: the middle shell holds the most points, the core is the densest";
+    },
     alt: "Figures for the normal distribution: the bell curve with its 68–95–99.7 bands, correlated samples with elliptical contours in the plane, a 3-D cloud of samples that is dense in the middle and sparse toward the outside, the radius distribution in n dimensions, and the ground state of the quantum harmonic oscillator.",
     story: true,
     controls: function (s) { return ND.controls[s.ch] || []; },
@@ -2261,11 +2369,19 @@
       this.box = ND.wide[slug] ? { l: 12, r: 12, t: 12, b: 12 } : BOX;
       return true;
     },
-    render: function (s, p) { return this[s.ch](s, p); },
+    render: function (s, p) {
+      if (s.ch !== "three-dimension" && p.svg.parentNode._gc) p.svg.parentNode._gc.show(false);
+      return this[s.ch](s, p);
+    },
+    click: function (s) {
+      if (s.ch !== "three-dimension") return false;
+      s.reseed = (s.reseed || 0) + 1;
+      return true;
+    },
     describe: byBlock({
       "one-dimension": "Blue: the normal density φ(<i>x</i>) with mean μ and standard deviation σ. The shaded bands are μ ± σ, μ ± 2σ and μ ± 3σ, darker for the inner ones, with the share of probability each contains.",
       "two-dimension": "Gray dots: 1200 samples from a 2-D normal with covariance Σ. Blue ellipses: the level sets where the density has dropped by e<sup>−1/2</sup>, e<sup>−2</sup> and e<sup>−9/2</sup> (Mahalanobis radius 1, 2, 3). Brown arrows: the principal axes, the eigenvectors of Σ scaled by √λ.",
-      "three-dimension": "A cloud of samples from the 3-D standard normal, seen from one side. Blue points lie within 1σ of the center, black within 2σ, brown beyond. The dashed circles are the spheres of radius 1, 2 and 3σ. The core is dense; the outer shells hold many points but spread them over much more volume.",
+      "three-dimension": "A rotating cloud of samples from the 3-D standard normal, |ψ|² ∝ e<sup>−<i>r</i>²/2</sup> with σ = 1. Blue points lie within 1σ of the center, black within 2σ, brown beyond; nearer points are drawn larger and brighter. The dashed circles are the spheres of radius 1, 2 and 3σ. The core is dense; the outer shells hold many points but spread them over much more volume.",
       "n-dimension": "Blue: the density of the distance <i>r</i> = ‖<i>X</i>‖ from the center for <i>X</i> ~ N(0, <i>I<sub>n</sub></i>), the chi distribution. Dashed gray: the density per unit volume at distance <i>r</i>, which is always largest at the center. Their product with the sphere's area gives the blue curve.",
       quantum: "Black: the potential <i>V</i>(<i>x</i>) = ½<i>m</i>ω²<i>x</i>² of a harmonic trap. Gray lines: the energy levels <i>E<sub>n</sub></i> = (<i>n</i> + ½)ħω, with the wavefunctions ψ<sub><i>n</i></sub> drawn on them. Blue: the ground-state probability density |ψ<sub>0</sub>|², a normal distribution (units ħ = <i>m</i> = 1)."
     }),
@@ -2323,33 +2439,20 @@
     },
 
     "three-dimension": function (s, p) {
-      var sc = scale([-4.6, 4.6], [-3.003, 3.003], this.box), X = sc.x, Y = sc.y, pts = ND.cloud().slice(0, s.npts), gb = p.g(null, true);
-      [[3, 5], [2, 7], [1, 12]].forEach(function (b) {
-        var e = p.circle(gb, X(0), Y(0), b[0] * sc.sx, "cell");
-        e.style.fill = "color-mix(in srgb, var(--focus) " + b[1] + "%, transparent)";
-      });
-      var g = p.g(null, true);
-      var c = Math.cos(0.5), sn = Math.sin(0.5), ct = Math.cos(0.35), st = Math.sin(0.35);
-      var order = pts.map(function (q) {
-        var x = c * q.v[0] + sn * q.v[2], z = -sn * q.v[0] + c * q.v[2], y = ct * q.v[1] - st * z;
-        return { x: x, y: y, r: q.r };
-      }).sort(function (u, v) { return v.r - u.r; });
-      order.forEach(function (q) {
-        var e = p.circle(g, X(q.x), Y(q.y), q.r <= 1 ? 1.9 : 1.6, "pt");
-        e.style.setProperty("--c", q.r <= 1 ? "var(--focus)" : q.r <= 2 ? "var(--ink)" : "var(--warm)");
-        if (q.r > 1) e.style.fillOpacity = q.r <= 2 ? "0.35" : "0.6";
-      });
-      var gs = p.g(null), cnt = [0, 0, 0, 0];
-      pts.forEach(function (q) { cnt[q.r <= 1 ? 0 : q.r <= 2 ? 1 : q.r <= 3 ? 2 : 3]++; });
-      [1, 2, 3].forEach(function (k) {
-        p.circle(gs, X(0), Y(0), k * sc.sx, "curve thin c-muted dash");
-        p.label("th-" + k, "r = " + k + "\\sigma", X(0) + k * sc.sx * 0.72 + 4, Y(0) - k * sc.sx * 0.72 - 2, "ne");
-      });
-      p.label("th-f", "p(\\mathbf{x}) = (2\\pi)^{-3/2} e^{-\\lVert\\mathbf{x}\\rVert^2/2}", X(-4.45), Y(2.9), "se");
-      var vol = function (r) { return 4 / 3 * Math.PI * r * r * r; }, N = pts.length;
-      var dens = [cnt[0] / N / vol(1), cnt[1] / N / (vol(2) - vol(1)), cnt[2] / N / (vol(3) - vol(2))];
-      return "points in the core <i>r</i> ≤ 1: " + num(100 * cnt[0] / N, 1) + "% (theory " + num(100 * ND.inside(3, 1), 1) + "%), shell 1–2: " + num(100 * cnt[1] / N, 1) + "%, shell 2–3: " + num(100 * cnt[2] / N, 1) + "%, beyond: " + num(100 * cnt[3] / N, 1) + "%" +
-        " &nbsp;·&nbsp; points per unit volume: " + num(100 * dens[0], 2) + "%, " + num(100 * dens[1], 2) + "%, " + num(100 * dens[2], 3) + "%: the middle shell holds the most points, the core is the densest";
+      var w = ND.widget(p.svg.parentNode);
+      if (!s.cloud || s.cloud.n !== s.npts || s.cloud.seed !== s.reseed) {
+        s.cloud = ND.sample(s.npts);
+        s.cloud.n = s.npts; s.cloud.seed = s.reseed;
+      }
+      w.pts = s.cloud.pts;
+      w.spin = s.spin === "on";
+      w.show(true);
+      p.label("th-f", "p(\\mathbf{x}) = (2\\pi)^{-3/2} e^{-\\lVert\\mathbf{x}\\rVert^2/2}", 14, 14, "se");
+      var I = s.cloud.inside, vol = function (r) { return 4 / 3 * Math.PI * r * r * r; };
+      var dens = [I[0] / vol(1), (I[1] - I[0]) / (vol(2) - vol(1)), (I[2] - I[1]) / (vol(3) - vol(2))];
+      return "inside <i>r</i> &lt; 1σ: <b>" + num(100 * I[0], 1) + "%</b> (theory " + num(100 * ND.inside(3, 1), 1) + "%) &nbsp;·&nbsp; inside 2σ: <b>" + num(100 * I[1], 1) + "%</b> (" + num(100 * ND.inside(3, 2), 1) +
+        "%) &nbsp;·&nbsp; inside 3σ: <b>" + num(100 * I[2], 1) + "%</b> (" + num(100 * ND.inside(3, 3), 1) + "%)<br>points per unit volume in the core, shell 1–2 and shell 2–3: " +
+        num(100 * dens[0], 2) + "%, " + num(100 * dens[1], 2) + "%, " + num(100 * dens[2], 3) + "%: the middle shell holds the most points, the core is the densest. <span class=\"muted\">Drag to rotate; tap to resample.</span>";
     },
 
     "n-dimension": function (s, p) {
