@@ -80,6 +80,9 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:"STIX Two Tex
 .fig .hitc{fill:transparent;stroke:none}
 .gc-canvas{position:absolute;inset:0;width:100%;height:100%;cursor:grab;touch-action:none}
 .gc-canvas:active{cursor:grabbing}
+.gc-zoom{position:absolute;right:8px;bottom:8px;display:flex;gap:6px}
+.gc-zoom button{width:34px;height:34px;border-radius:50%;border:1.5px solid var(--rule);background:var(--surface);color:var(--ink);font:600 1.05rem system-ui,sans-serif;cursor:pointer;line-height:1}
+.gc-zoom button:focus-visible{outline:3px dashed var(--focus);outline-offset:2px}
 .fig .pt{fill:var(--c,var(--ink));fill-opacity:.55;stroke:none}
 .fig .part{cursor:pointer}
 .fig .part.on{--hl:var(--focus);filter:drop-shadow(0 0 3px color-mix(in srgb,var(--focus) 55%,transparent))}

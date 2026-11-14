@@ -2250,17 +2250,74 @@
     if (stage._gc) return stage._gc;
     var cv = document.createElement("canvas"), ctx = cv.getContext("2d");
     cv.className = "gc-canvas";
+    cv.setAttribute("aria-label", "Rotatable 3-D point cloud. Drag to rotate, scroll or pinch to zoom.");
     stage.insertBefore(cv, stage.querySelector(".fig-labels"));
-    var g = { cv: cv, active: false, running: false, spin: true, ay: 0.5, ax: -0.35, pts: [] }, drag = false, lx = 0, ly = 0, W = 0, H = 0;
-    cv.addEventListener("pointerdown", function (e) { drag = true; lx = e.clientX; ly = e.clientY; cv.setPointerCapture(e.pointerId); });
-    cv.addEventListener("pointermove", function (e) {
-      if (!drag) return;
-      g.ay += (e.clientX - lx) * 0.01;
-      g.ax = Math.max(-1.5, Math.min(1.5, g.ax + (e.clientY - ly) * 0.01));
-      lx = e.clientX; ly = e.clientY;
+    var zoomBar = document.createElement("div");
+    zoomBar.className = "gc-zoom";
+    [["+", "Zoom in", 1.25], ["−", "Zoom out", 0.8], ["⟲", "Reset view", 0]].forEach(function (b) {
+      var btn = document.createElement("button");
+      btn.type = "button"; btn.textContent = b[0]; btn.setAttribute("aria-label", b[1]); btn.title = b[1];
+      btn.addEventListener("pointerdown", function (e) { e.stopPropagation(); });
+      btn.addEventListener("pointerup", function (e) { e.stopPropagation(); });
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        if (b[2]) g.zoom = clamp(g.zoom * b[2], 0.5, 4);
+        else { g.zoom = 1; g.R = ND.start(); g.w = [0, 0.004, 0]; }
+      });
+      zoomBar.appendChild(btn);
     });
-    cv.addEventListener("pointerup", function () { drag = false; });
-    cv.addEventListener("pointercancel", function () { drag = false; });
+    stage.appendChild(zoomBar);
+
+    // Orientation R (rows = view axes: right, up, toward the viewer), angular
+    // velocity w (radians per frame, in view coordinates) and zoom.
+    var g = { cv: cv, bar: zoomBar, active: false, running: false, spin: true, pts: [], R: ND.start(), w: [0, 0.004, 0], zoom: 1 };
+    var ptrs = {}, last = null, pinch = 0, W = 0, H = 0;
+    function turn(axis, ang) {
+      var n = Math.sqrt(axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]);
+      if (n < 1e-9 || !ang) return;
+      var x = axis[0] / n, y = axis[1] / n, z = axis[2] / n, c = Math.cos(ang), s = Math.sin(ang), t = 1 - c;
+      var M = [[t * x * x + c, t * x * y - s * z, t * x * z + s * y], [t * x * y + s * z, t * y * y + c, t * y * z - s * x], [t * x * z - s * y, t * y * z + s * x, t * z * z + c]];
+      g.R = M.map(function (row) { return [0, 1, 2].map(function (j) { return row[0] * g.R[0][j] + row[1] * g.R[1][j] + row[2] * g.R[2][j]; }); });
+    }
+    function count() { return Object.keys(ptrs).length; }
+    function spread() { var k = Object.keys(ptrs), a = ptrs[k[0]], b = ptrs[k[1]]; return Math.hypot(a.x - b.x, a.y - b.y); }
+    cv.addEventListener("pointerdown", function (e) {
+      ptrs[e.pointerId] = { x: e.clientX, y: e.clientY };
+      cv.setPointerCapture(e.pointerId);
+      if (count() === 2) pinch = spread();
+      last = { x: e.clientX, y: e.clientY, t: performance.now() };
+    });
+    cv.addEventListener("pointermove", function (e) {
+      if (!ptrs[e.pointerId]) return;
+      ptrs[e.pointerId] = { x: e.clientX, y: e.clientY };
+      if (count() === 2) {
+        var d = spread();
+        if (pinch) g.zoom = clamp(g.zoom * d / pinch, 0.5, 4);
+        pinch = d;
+        return;
+      }
+      if (!last) return;
+      // Dragging by (dx, dy) turns the ball about the axis perpendicular to the
+      // drag, so the near side follows the pointer.
+      var dx = e.clientX - last.x, dy = e.clientY - last.y, ang = Math.hypot(dx, dy) * 0.008;
+      turn([dy, dx, 0], ang);
+      var dt = Math.max(performance.now() - last.t, 1) / 16.7, k = ang / dt;
+      g.w = ang ? [dy / Math.hypot(dx, dy) * k, dx / Math.hypot(dx, dy) * k, 0] : g.w;
+      last = { x: e.clientX, y: e.clientY, t: performance.now() };
+    });
+    function up(e) {
+      delete ptrs[e.pointerId];
+      if (count() < 2) pinch = 0;
+      if (!count()) last = null;
+      else { var k = Object.keys(ptrs)[0]; last = { x: ptrs[k].x, y: ptrs[k].y, t: performance.now() }; }
+    }
+    cv.addEventListener("pointerup", up);
+    cv.addEventListener("pointercancel", up);
+    cv.addEventListener("wheel", function (e) {
+      e.preventDefault();
+      g.zoom = clamp(g.zoom * Math.exp(-e.deltaY * 0.0015), 0.5, 4);
+    }, { passive: false });
+
     function size() {
       var dpr = window.devicePixelRatio || 1, w = stage.clientWidth, h = stage.clientHeight;
       if (w !== W || h !== H) { W = w; H = h; cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
@@ -2268,16 +2325,27 @@
     function frame() {
       if (!g.active || !cv.isConnected || !cv.offsetParent) { g.running = false; return; }
       size();
-      if (g.spin && !drag) g.ay += 0.004;
+      var held = last && count() === 1;
+      if (!held) {
+        // After a release the ball keeps the spin you gave it, easing down to
+        // a slow drift in the same direction (or stopping when paused).
+        var sp = Math.hypot(g.w[0], g.w[1], g.w[2]), base = g.spin ? 0.004 : 0;
+        if (sp > 1e-6) {
+          var target = Math.max(base, sp * 0.96);
+          if (sp < base) target = Math.min(base, sp + 0.0002);
+          g.w = g.w.map(function (v) { return v / sp * target; });
+          turn(g.w, target);
+        } else if (base) g.w = [0, base, 0];
+      }
       var css = getComputedStyle(stage), col = function (n) { return css.getPropertyValue(n).trim(); };
       var focus = col("--focus"), ink = col("--ink"), warm = col("--warm"), muted = col("--muted");
       ctx.clearRect(0, 0, W, H);
-      var sc = Math.min(W, H) / 7.4, cx = W / 2, cy = H / 2;
-      var cY = Math.cos(g.ay), sY = Math.sin(g.ay), cX = Math.cos(g.ax), sX = Math.sin(g.ax);
-      // Rotate about y, then about x; sort back to front so near points draw on top.
+      var sc = Math.min(W, H) / 7.4 * g.zoom, cx = W / 2, cy = H / 2, D = 14, R = g.R;
       var proj = g.pts.map(function (q) {
-        var x = q[0] * cY + q[2] * sY, z = -q[0] * sY + q[2] * cY, y = q[1] * cX - z * sX;
-        return [x, y, q[1] * sX + z * cX, q[3]];
+        var x = R[0][0] * q[0] + R[0][1] * q[1] + R[0][2] * q[2];
+        var y = R[1][0] * q[0] + R[1][1] * q[1] + R[1][2] * q[2];
+        var z = R[2][0] * q[0] + R[2][1] * q[1] + R[2][2] * q[2], f = D / (D - z);
+        return [cx + x * f * sc, cy - y * f * sc, z, q[3], f];
       }).sort(function (a, b) { return a[2] - b[2]; });
       ctx.setLineDash([4, 5]); ctx.lineWidth = 1; ctx.strokeStyle = muted; ctx.fillStyle = muted;
       ctx.font = "13px system-ui, sans-serif";
@@ -2286,11 +2354,12 @@
         ctx.fillText(k + "σ", cx + k * sc * 0.707 + 4, cy - k * sc * 0.707 - 4);
       });
       ctx.setLineDash([]);
+      var dot = Math.min(2.2, 0.9 + 0.35 * g.zoom);
       for (var i = 0; i < proj.length; i++) {
         var q = proj[i], d = (q[2] + 3.5) / 7;
         ctx.globalAlpha = Math.max(0.15, Math.min(0.9, 0.25 + 0.6 * d)) * (q[3] < 1 ? 1 : q[3] < 2 ? 0.7 : 0.85);
         ctx.fillStyle = q[3] < 1 ? focus : q[3] < 2 ? ink : warm;
-        ctx.beginPath(); ctx.arc(cx + q[0] * sc, cy - q[1] * sc, 1.1 + 0.9 * d, 0, 2 * Math.PI); ctx.fill();
+        ctx.beginPath(); ctx.arc(q[0], q[1], (dot + 0.9 * d) * q[4], 0, 2 * Math.PI); ctx.fill();
       }
       ctx.globalAlpha = 1;
       requestAnimationFrame(frame);
@@ -2298,10 +2367,16 @@
     g.show = function (on) {
       g.active = on;
       cv.hidden = !on;
+      zoomBar.hidden = !on;
       if (on && !g.running) { g.running = true; requestAnimationFrame(frame); }
     };
     stage._gc = g;
     return g;
+  };
+  // A slightly tilted starting view: R = Rx(−0.35) · Ry(0.5).
+  ND.start = function () {
+    var ca = Math.cos(-0.35), sa = Math.sin(-0.35), cb = Math.cos(0.5), sb = Math.sin(0.5);
+    return [[cb, 0, sb], [sa * sb, ca, -sa * cb], [-ca * sb, sa, ca * cb]];
   };
 
   ND.controls = {
@@ -2381,7 +2456,7 @@
     describe: byBlock({
       "one-dimension": "Blue: the normal density φ(<i>x</i>) with mean μ and standard deviation σ. The shaded bands are μ ± σ, μ ± 2σ and μ ± 3σ, darker for the inner ones, with the share of probability each contains.",
       "two-dimension": "Gray dots: 1200 samples from a 2-D normal with covariance Σ. Blue ellipses: the level sets where the density has dropped by e<sup>−1/2</sup>, e<sup>−2</sup> and e<sup>−9/2</sup> (Mahalanobis radius 1, 2, 3). Brown arrows: the principal axes, the eigenvectors of Σ scaled by √λ.",
-      "three-dimension": "A rotating cloud of samples from the 3-D standard normal, |ψ|² ∝ e<sup>−<i>r</i>²/2</sup> with σ = 1. Blue points lie within 1σ of the center, black within 2σ, brown beyond; nearer points are drawn larger and brighter. The dashed circles are the spheres of radius 1, 2 and 3σ. The core is dense; the outer shells hold many points but spread them over much more volume.",
+      "three-dimension": "A spinning cloud of samples from the 3-D standard normal, |ψ|² ∝ e<sup>−<i>r</i>²/2</sup> with σ = 1. Blue points lie within 1σ of the center, black within 2σ, brown beyond; nearer points are drawn larger and brighter. The dashed circles are the spheres of radius 1, 2 and 3σ. The core is dense; the outer shells hold many points but spread them over much more volume.",
       "n-dimension": "Blue: the density of the distance <i>r</i> = ‖<i>X</i>‖ from the center for <i>X</i> ~ N(0, <i>I<sub>n</sub></i>), the chi distribution. Dashed gray: the density per unit volume at distance <i>r</i>, which is always largest at the center. Their product with the sphere's area gives the blue curve.",
       quantum: "Black: the potential <i>V</i>(<i>x</i>) = ½<i>m</i>ω²<i>x</i>² of a harmonic trap. Gray lines: the energy levels <i>E<sub>n</sub></i> = (<i>n</i> + ½)ħω, with the wavefunctions ψ<sub><i>n</i></sub> drawn on them. Blue: the ground-state probability density |ψ<sub>0</sub>|², a normal distribution (units ħ = <i>m</i> = 1)."
     }),
@@ -2452,7 +2527,7 @@
       var dens = [I[0] / vol(1), (I[1] - I[0]) / (vol(2) - vol(1)), (I[2] - I[1]) / (vol(3) - vol(2))];
       return "inside <i>r</i> &lt; 1σ: <b>" + num(100 * I[0], 1) + "%</b> (theory " + num(100 * ND.inside(3, 1), 1) + "%) &nbsp;·&nbsp; inside 2σ: <b>" + num(100 * I[1], 1) + "%</b> (" + num(100 * ND.inside(3, 2), 1) +
         "%) &nbsp;·&nbsp; inside 3σ: <b>" + num(100 * I[2], 1) + "%</b> (" + num(100 * ND.inside(3, 3), 1) + "%)<br>points per unit volume in the core, shell 1–2 and shell 2–3: " +
-        num(100 * dens[0], 2) + "%, " + num(100 * dens[1], 2) + "%, " + num(100 * dens[2], 3) + "%: the middle shell holds the most points, the core is the densest. <span class=\"muted\">Drag to rotate; tap to resample.</span>";
+        num(100 * dens[0], 2) + "%, " + num(100 * dens[1], 2) + "%, " + num(100 * dens[2], 3) + "%: the middle shell holds the most points, the core is the densest. <span class=\"muted\">Drag to spin it your way; scroll, pinch or use + / − to zoom; tap to resample.</span>";
     },
 
     "n-dimension": function (s, p) {

@@ -5,7 +5,7 @@ tex: 'p(\mathbf{x}) = (2\pi)^{-3/2}\, e^{-\lVert \mathbf{x} \rVert^2 / 2}, \qqua
 ---
 The 3-D standard normal is again a product of three independent 1-D normals, and again depends only on the radius. Its density is a **ball of fog**, thickest at the center and thinning out in every direction alike. A correlated 3-D normal stretches the ball into an ellipsoid, just as in 2-D.
 
-**The figure** shows that fog as samples, slowly rotating so you can see it looks the same from every side. Drag to turn it, tap for a fresh sample, or pause the rotation. The core within $$1\sigma$$ (blue) is packed tight. The outer points (black, then brown) become sparse.
+**The figure** shows that fog as samples, always turning so you can see it looks the same from every side. Drag to spin it in any direction (it keeps the spin when you let go), zoom with the wheel, a pinch or the + / − buttons, tap for a fresh sample, or pause the rotation. The core within $$1\sigma$$ (blue) is packed tight. The outer points (black, then brown) become sparse.
 
 Now count instead of looking. The share of samples is
 
