@@ -52,3 +52,9 @@
   labels: [Large Language Model, Linear Algebra]
   figure: rope
   description: "Derive RoPE from one requirement, that attention scores depend only on relative position: lengths stay, angles turn by mθ."
+
+- id: fem
+  title: Finite element method
+  labels: [Numerical Analysis, Linear Algebra]
+  figure: fem
+  description: "From the weak form and the Lax–Milgram theorem to hat functions, assembly and convergence, ending with a live heat simulation on an L-shaped plate."

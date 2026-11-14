@@ -1477,5 +1477,340 @@
     }
   };
 
+  // Finite elements for −u″ = f on (0, 1), u(0) = u(1) = 0, then a 2-D plate.
+  var FE = { PI: Math.PI };
+  FE.u = function (x) { return Math.sin(Math.PI * x) + 0.4 * Math.sin(2 * Math.PI * x); };
+  FE.du = function (x) { return Math.PI * Math.cos(Math.PI * x) + 0.8 * Math.PI * Math.cos(2 * Math.PI * x); };
+  FE.f = function (x) { var p2 = Math.PI * Math.PI; return p2 * Math.sin(Math.PI * x) + 1.6 * p2 * Math.sin(2 * Math.PI * x); };
+  FE.gx = [-Math.sqrt(0.6), 0, Math.sqrt(0.6)];
+  FE.gw = [5 / 9, 8 / 9, 5 / 9];
+  // Integrate fn over [a, b] with 3-point Gauss.
+  FE.quad = function (fn, a, b) {
+    var s = 0, m = (a + b) / 2, r = (b - a) / 2;
+    for (var q = 0; q < 3; q++) s += FE.gw[q] * fn(m + r * FE.gx[q]);
+    return s * r;
+  };
+  // Linear elements on N equal cells: K = (1/h) tridiag(−1, 2, −1), F_i = ∫ f φ_i.
+  FE.solve = function (N) {
+    var h = 1 / N, n = N - 1, F = [], i, U = [0];
+    for (i = 1; i <= n; i++) {
+      var xi = i * h;
+      F.push(FE.quad(function (x) { return FE.f(x) * (x - xi + h) / h; }, xi - h, xi) +
+        FE.quad(function (x) { return FE.f(x) * (xi + h - x) / h; }, xi, xi + h));
+    }
+    var c = [], d = [];
+    for (i = 0; i < n; i++) {
+      var b = 2 / h, a = -1 / h, den = b - (i ? a * c[i - 1] : 0);
+      c.push(-1 / h / den);
+      d.push((F[i] - (i ? a * d[i - 1] : 0)) / den);
+    }
+    var X = new Array(n);
+    for (i = n - 1; i >= 0; i--) X[i] = d[i] - (i < n - 1 ? c[i] * X[i + 1] : 0);
+    return U.concat(X, [0]);
+  };
+  FE.errors = function (N, U) {
+    var h = 1 / N, e0 = 0, e1 = 0, emax = 0;
+    for (var e = 0; e < N; e++) {
+      var a = e * h, slope = (U[e + 1] - U[e]) / h;
+      e0 += FE.quad(function (x) { var d = FE.u(x) - (U[e] + slope * (x - a)); return d * d; }, a, a + h);
+      e1 += FE.quad(function (x) { var d = FE.du(x) - slope; return d * d; }, a, a + h);
+      emax = Math.max(emax, Math.abs(U[e + 1] - FE.u(a + h)));
+    }
+    return { L2: Math.sqrt(e0), H1: Math.sqrt(e1), node: emax };
+  };
+  // Plot helper: a function on [0, 1].
+  FE.curve = function (p, g, sc, fn, cls) {
+    var pts = [];
+    for (var i = 0; i <= 200; i++) { var x = i / 200; pts.push([sc.x(x), sc.y(fn(x))]); }
+    p.poly(g, pts, cls);
+  };
+
+  // 2-D: steady heat −Δu = f on an L-shaped plate held at 0 on its edges,
+  // linear triangles on a uniform grid, solved by conjugate gradient.
+  FE.plate = function (n, src, uniform) {
+    var h = 2 / n, id = [], nodes = [], i, j;
+    function inside(x, y) { return !(x > 1e-9 && y < -1e-9); }
+    function boundary(x, y) { return Math.abs(Math.abs(x) - 1) < 1e-9 || Math.abs(Math.abs(y) - 1) < 1e-9 || (Math.abs(x) < 1e-9 && y <= 1e-9) || (Math.abs(y) < 1e-9 && x >= -1e-9); }
+    for (j = 0; j <= n; j++) for (i = 0; i <= n; i++) {
+      var x = -1 + i * h, y = -1 + j * h;
+      id.push(inside(x, y) && !boundary(x, y) ? nodes.push([x, y]) - 1 : -1);
+    }
+    var tris = [], rows = nodes.map(function () { return {}; }), F = nodes.map(function () { return 0; });
+    function f(x, y) {
+      if (uniform) return 1;
+      var dx = x - src[0], dy = y - src[1];
+      return 25 * Math.exp(-(dx * dx + dy * dy) / 0.02);
+    }
+    for (j = 0; j < n; j++) for (i = 0; i < n; i++) {
+      var cx = -1 + (i + 0.5) * h, cy = -1 + (j + 0.5) * h;
+      if (!inside(cx, cy)) continue;
+      var v = [[i, j], [i + 1, j], [i + 1, j + 1], [i, j + 1]];
+      [[v[0], v[1], v[2]], [v[0], v[2], v[3]]].forEach(function (t) {
+        var P = t.map(function (q) { return [-1 + q[0] * h, -1 + q[1] * h]; }), I = t.map(function (q) { return id[q[1] * (n + 1) + q[0]]; });
+        var area = Math.abs((P[1][0] - P[0][0]) * (P[2][1] - P[0][1]) - (P[2][0] - P[0][0]) * (P[1][1] - P[0][1])) / 2;
+        var G = [0, 1, 2].map(function (a) {
+          var b = (a + 1) % 3, c = (a + 2) % 3;
+          return [(P[b][1] - P[c][1]) / (2 * area), (P[c][0] - P[b][0]) / (2 * area)];
+        });
+        var fc = f((P[0][0] + P[1][0] + P[2][0]) / 3, (P[0][1] + P[1][1] + P[2][1]) / 3);
+        for (var a = 0; a < 3; a++) {
+          if (I[a] < 0) continue;
+          F[I[a]] += fc * area / 3;
+          for (var b = 0; b < 3; b++) if (I[b] >= 0) rows[I[a]][I[b]] = (rows[I[a]][I[b]] || 0) + area * (G[a][0] * G[b][0] + G[a][1] * G[b][1]);
+        }
+        tris.push({ P: P, I: I });
+      });
+    }
+    var K = rows.map(function (r) { var ks = Object.keys(r); return { c: ks.map(Number), v: ks.map(function (k) { return r[k]; }) }; });
+    function mul(x) { return K.map(function (r) { var s = 0; for (var q = 0; q < r.c.length; q++) s += r.v[q] * x[r.c[q]]; return s; }); }
+    var m = nodes.length, U = new Array(m).fill(0), R = F.slice(), Pd = R.slice(), rr = 0, it = 0, k;
+    for (k = 0; k < m; k++) rr += R[k] * R[k];
+    var r0 = Math.sqrt(rr);
+    while (it < 2000 && Math.sqrt(rr) > 1e-9 * r0) {
+      var AP = mul(Pd), pAp = 0;
+      for (k = 0; k < m; k++) pAp += Pd[k] * AP[k];
+      var al = rr / pAp, rn = 0;
+      for (k = 0; k < m; k++) { U[k] += al * Pd[k]; R[k] -= al * AP[k]; rn += R[k] * R[k]; }
+      for (k = 0; k < m; k++) Pd[k] = R[k] + rn / rr * Pd[k];
+      rr = rn; it++;
+    }
+    return { nodes: nodes, tris: tris, U: U, it: it };
+  };
+
+  function NN(key, label, min, max, value) { return { key: key, label: label, min: min, max: max, step: 1, value: value, show: function (v) { return label === "Element" ? "e = " + v : label === "Hat" ? "i = " + v : "N = " + v; } }; }
+  FE.controls = {
+    "strong-form": [],
+    "weak-form": [
+      { key: "vc", label: "Test center", min: 0.1, max: 0.9, step: 0.01, value: 0.35, show: function (v) { return "c = " + num(v); } },
+      { key: "vw", label: "Test width", min: 0.05, max: 0.45, step: 0.01, value: 0.2, show: function (v) { return "w = " + num(v); } }
+    ],
+    "lax-milgram": [{ key: "cr", label: "Reaction", min: -30, max: 20, step: 0.5, value: 0, show: function (v) { return "c = " + num(v, 1); } }],
+    galerkin: [{ key: "vh", label: "Subspace", min: 0, max: 3.14, step: 0.01, value: 0.25, show: function (v) { return "angle " + num(v); } }],
+    "finite-elements": [NN("NF", "Elements", 2, 16, 6), NN("hat", "Hat", 1, 15, 2)],
+    assembly: [NN("NA", "Elements", 2, 12, 6), NN("el", "Element", 1, 12, 3)],
+    solve: [NN("NS", "Elements", 2, 64, 4)],
+    convergence: [{ key: "kp", label: "Elements", min: 1, max: 8, step: 1, value: 3, show: function (v) { return "N = " + Math.pow(2, v); } }],
+    application: [
+      { key: "load", label: "Heat source", type: "choice", value: "spot", options: [["spot", "Hot spot"], ["uniform", "Uniform"]] },
+      { key: "mesh", label: "Mesh", min: 8, max: 40, step: 4, value: 24, show: function (v) { return v + " × " + v + " cells"; } }
+    ]
+  };
+  FE.wide = { galerkin: 1, application: 1, assembly: 1 };
+  FE.hints = { galerkin: "Drag u.", application: "Drag the hot spot." };
+
+  specs.fem = {
+    alt: "Figures for the finite element method: the model problem, a test function in the weak form, coercivity by mode, Galerkin projection, hat functions, the stiffness matrix, the computed solution, error convergence, and the temperature in an L-shaped plate.",
+    story: true,
+    controls: function (s) { return FE.controls[s.ch] || []; },
+    init: function (s, thumb) {
+      s.ch = thumb ? "application" : "strong-form";
+      for (var c in FE.controls) FE.controls[c].forEach(function (o) { s[o.key] = o.value; });
+      s.ug = [1.5, 0.75];
+      s.src = [-0.45, 0.4];
+      this.box = thumb ? { l: 12, r: 12, t: 12, b: 12 } : BOX;
+      if (thumb) s.mesh = 16;
+    },
+    select: function (s, slug) {
+      if (!slug || slug === s.ch || !FE.controls[slug]) return false;
+      s.ch = slug;
+      this.box = FE.wide[slug] ? { l: 12, r: 12, t: 12, b: 12 } : BOX;
+      return true;
+    },
+    render: function (s, p) {
+      var out = this[s.ch](s, p) || "";
+      var hint = s.ch === "application" && s.load === "uniform" ? "" : FE.hints[s.ch];
+      return out + (hint ? " <span class=\"muted\">" + hint + "</span>" : "");
+    },
+    drag: function (s, pt, phase) {
+      var sc = this.sc;
+      if (!sc || (s.ch !== "galerkin" && s.ch !== "application")) return false;
+      var v = s.ch === "galerkin" ? s.ug : s.src;
+      if (phase === "start") return Math.abs(pt.x - sc.x(v[0])) + Math.abs(pt.y - sc.y(v[1])) < 30;
+      var x = sc.ix(pt.x), y = sc.iy(pt.y);
+      if (s.ch === "galerkin") s.ug = [clamp(x, -3.1, 3.1), clamp(y, -2, 2)];
+      else {
+        x = clamp(x, -0.95, 0.95); y = clamp(y, -0.95, 0.95);
+        if (x > 0 && y < 0) { if (x < -y) x = -0.02; else y = 0.02; }
+        s.src = [x, y];
+      }
+    },
+
+    "strong-form": function (s, p) {
+      var sc = scale([-0.08, 1.12], [-1.1, 1.6]), g = p.g(null, true);
+      p.axes(sc, { xticks: [0.5, 1], yticks: [1], xlabel: "x" });
+      FE.curve(p, g, sc, function (x) { return FE.f(x) / 25; }, "curve thin c-warm");
+      FE.curve(p, g, sc, FE.u, "curve c-accent");
+      p.label("sf-u", "u(x)", sc.x(0.3), sc.y(FE.u(0.3)), "nw");
+      p.label("sf-f", "f(x) / 25", sc.x(0.8), sc.y(FE.f(0.8) / 25), "se");
+      p.label("sf-0", "u(0) = 0", sc.x(0), sc.y(0) + 6, "se");
+      p.label("sf-1", "u(1) = 0", sc.x(1), sc.y(0) - 6, "ne");
+      return "−<i>u</i>″ = <i>f</i> on (0, 1), <i>u</i>(0) = <i>u</i>(1) = 0 &nbsp;·&nbsp; here <i>f</i> = π² sin π<i>x</i> + 1.6π² sin 2π<i>x</i>, so the exact solution <i>u</i> = sin π<i>x</i> + 0.4 sin 2π<i>x</i> is known and we can measure errors later";
+    },
+
+    "weak-form": function (s, p) {
+      var c = s.vc, w = s.vw;
+      var v = function (x) { var t = (x - c) / w; return Math.abs(t) < 1 ? (1 - t * t) * (1 - t * t) : 0; };
+      var dv = function (x) { var t = (x - c) / w; return Math.abs(t) < 1 ? -4 * t * (1 - t * t) / w : 0; };
+      var sc = scale([-0.08, 1.12], [-14, 24]), X = sc.x, Y = sc.y, a = Math.max(0, c - w), b = Math.min(1, c + w);
+      var g = p.g(null, true), i, A = [], B = [];
+      for (i = 0; i <= 200; i++) { var x = a + (b - a) * i / 200; A.push([X(x), Y(FE.du(x) * dv(x))]); B.push([X(x), Y(FE.f(x) * v(x))]); }
+      p.poly(g, [[X(a), Y(0)]].concat(A, [[X(b), Y(0)]]), "fill c-accent", true);
+      p.poly(g, [[X(a), Y(0)]].concat(B, [[X(b), Y(0)]]), "fill c-warm", true);
+      p.poly(g, A, "curve c-accent");
+      p.poly(g, B, "curve c-warm");
+      FE.curve(p, g, sc, function (x) { return 8 * v(x); }, "curve thin c-muted dash");
+      p.axes(sc, { xticks: [0.5, 1], xlabel: "x" });
+      p.label("wf-v", "v(x)", X(c), Y(8) - 4, "n");
+      var I1 = 0, I2 = 0;
+      for (i = 0; i < 40; i++) {
+        var x0 = a + (b - a) * i / 40, x1 = a + (b - a) * (i + 1) / 40;
+        I1 += FE.quad(function (x) { return FE.du(x) * dv(x); }, x0, x1);
+        I2 += FE.quad(function (x) { return FE.f(x) * v(x); }, x0, x1);
+      }
+      return "<span style=\"color:var(--focus)\">∫ <i>u</i>′<i>v</i>′ d<i>x</i> = " + num(I1, 4) + "</span> &nbsp;·&nbsp; <span style=\"color:var(--warm)\">∫ <i>f v</i> d<i>x</i> = " + num(I2, 4) +
+        "</span> &nbsp;·&nbsp; different curves, equal areas, for every test function <i>v</i>";
+    },
+
+    "lax-milgram": function (s, p) {
+      var c = s.cr, sc = scale([0, 11], [-2.4, 2.6]), X = sc.x, Y = sc.y, g = p.g(null), k;
+      for (k = 1; k <= 10; k++) {
+        var q = 1 + c / (k * k * Math.PI * Math.PI);
+        p.rect(g, X(k - 0.35), Y(Math.max(q, 0)), 0.7 * sc.sx, Math.abs(q) * sc.sy, "fill " + (q > 0 ? "c-accent" : "c-warm"));
+        p.rect(g, X(k - 0.35), Y(Math.max(q, 0)), 0.7 * sc.sx, Math.abs(q) * sc.sy, "curve thin " + (q > 0 ? "c-accent" : "c-warm"));
+      }
+      p.axes(sc, { xticks: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], yticks: [-2, -1, 1, 2], xlabel: "k" });
+      var alpha = Math.min(1, 1 + c / (Math.PI * Math.PI));
+      p.line(g, X(0.4), Y(alpha), X(10.7), Y(alpha), "curve thin c-muted dash");
+      p.label("lm-a", "\\alpha", X(10.7), Y(alpha), "e");
+      p.label("lm-q", "a(\\phi_k, \\phi_k) / \\lVert \\phi_k' \\rVert^2", X(0.6), Y(2.5), "se");
+      var pi2 = Math.PI * Math.PI;
+      return "<i>a</i>(<i>u</i>, <i>v</i>) = ∫ <i>u</i>′<i>v</i>′ + <i>c uv</i>, modes φ<sub><i>k</i></sub> = sin <i>k</i>π<i>x</i> &nbsp;·&nbsp; " +
+        (alpha > 1e-9 ? "coercive with α = " + num(alpha, 3) + ": Lax–Milgram gives one solution, with ‖<i>u</i>′‖ ≤ ‖ℓ‖ / α" :
+          Math.abs(c + pi2) < 0.3 ? "c ≈ −π²: sin π<i>x</i> solves the problem with <i>f</i> = 0, so solutions are not unique" :
+          "not coercive (mode 1 has negative energy): Lax–Milgram no longer applies") +
+        " &nbsp;·&nbsp; for <i>f</i> = sin π<i>x</i> the solution is sin π<i>x</i> / (π² + <i>c</i>)" + (Math.abs(c + pi2) > 0.3 ? " = " + num(1 / (pi2 + c), 3) + " sin π<i>x</i>" : "");
+    },
+
+    galerkin: function (s, p) {
+      var sc = this.sc = scale([-3.3, 3.3], [-2.155, 2.155], this.box), X = sc.x, Y = sc.y, A = [[2, 0.9], [0.9, 1]], u = s.ug, i;
+      var d = [Math.cos(s.vh), Math.sin(s.vh)], Ad = [A[0][0] * d[0] + A[0][1] * d[1], A[1][0] * d[0] + A[1][1] * d[1]];
+      var t = (Ad[0] * u[0] + Ad[1] * u[1]) / (d[0] * Ad[0] + d[1] * Ad[1]), uh = [t * d[0], t * d[1]];
+      var te = d[0] * u[0] + d[1] * u[1], ue = [te * d[0], te * d[1]];
+      var en = function (w) { return Math.sqrt(w[0] * (A[0][0] * w[0] + A[0][1] * w[1]) + w[1] * (A[1][0] * w[0] + A[1][1] * w[1])); };
+      var r = en([u[0] - uh[0], u[1] - uh[1]]), ell = [];
+      for (i = 0; i <= 120; i++) {
+        var a = i / 120 * 2 * Math.PI, e = [Math.cos(a), Math.sin(a)], k = r / en(e);
+        ell.push([X(u[0] + k * e[0]), Y(u[1] + k * e[1])]);
+      }
+      var g = p.g(null);
+      p.line(g, X(-3.3), Y(0), X(3.3), Y(0), "axisline");
+      p.line(g, X(0), Y(-2.155), X(0), Y(2.155), "axisline");
+      var gl = p.g(null, true);
+      p.line(gl, X(-6 * d[0]), Y(-6 * d[1]), X(6 * d[0]), Y(6 * d[1]), "curve c-muted");
+      p.poly(gl, ell, "curve thin c-accent dash", true);
+      p.line(gl, X(u[0]), Y(u[1]), X(uh[0]), Y(uh[1]), "curve thin c-accent");
+      p.line(gl, X(u[0]), Y(u[1]), X(ue[0]), Y(ue[1]), "curve thin c-muted dash");
+      p.circle(g, X(ue[0]), Y(ue[1]), 4, "hollow c-muted");
+      p.circle(g, X(uh[0]), Y(uh[1]), 5.5, "dot c-accent");
+      p.circle(g, X(u[0]), Y(u[1]), 6, "dot");
+      p.circle(g, X(u[0]), Y(u[1]), 16, "hitc");
+      p.label("ga-u", "u", X(u[0]) + 6, Y(u[1]) - 6, "ne");
+      p.label("ga-uh", "u_h", X(uh[0]), Y(uh[1]) + 6, "s");
+      var lx = 2.6 * d[0], ly = 2.6 * d[1];
+      p.label("ga-V", "V_h", X(lx), Y(ly), "n");
+      return "energy error ‖<i>u</i> − <i>u<sub>h</sub></i>‖<sub><i>a</i></sub> = " + num(r, 3) + " (blue: Galerkin) &nbsp;·&nbsp; the ordinary orthogonal projection (gray ring) has energy error " +
+        num(en([u[0] - ue[0], u[1] - ue[1]]), 3) + " &nbsp;·&nbsp; the dashed ellipse, a sphere in the energy norm, touches <i>V<sub>h</sub></i> exactly at <i>u<sub>h</sub></i>";
+    },
+
+    "finite-elements": function (s, p) {
+      var N = s.NF, h = 1 / N, hi = Math.min(s.hat, N - 1), sc = scale([-0.08, 1.12], [-0.7, 1.6]), X = sc.x, Y = sc.y, g = p.g(null), i;
+      p.axes(sc, { xticks: [0.5, 1], yticks: [1], xlabel: "x" });
+      for (i = 1; i < N; i++) {
+        var pts = [[X((i - 1) * h), Y(0)], [X(i * h), Y(1)], [X((i + 1) * h), Y(0)]];
+        p.poly(g, pts, i === hi ? "curve c-warm" : "curve thin c-muted");
+      }
+      FE.curve(p, g, sc, FE.u, "curve thin");
+      var I = [];
+      for (i = 0; i <= N; i++) I.push([X(i * h), Y(FE.u(i * h))]);
+      p.poly(g, I, "curve c-accent");
+      for (i = 0; i <= N; i++) { p.line(g, X(i * h), Y(0) - 5, X(i * h), Y(0) + 5, "tick strong"); if (i > 0 && i < N) p.circle(g, X(i * h), Y(FE.u(i * h)), 3.5, "dot c-accent"); }
+      p.label("fe-phi", "\\phi_{" + hi + "}", X(hi * h), Y(1) - 4, "n");
+      p.label("fe-u", "u", X(0.12), Y(FE.u(0.12)), "nw");
+      p.label("fe-I", "\\textstyle\\sum_i u(x_i)\\,\\phi_i", X(0.62), Y(FE.u(0.62)) + 8, "ne");
+      return "<i>V<sub>h</sub></i> = continuous, piecewise-linear functions on " + N + " elements, zero at both ends: dimension " + (N - 1) +
+        " &nbsp;·&nbsp; hat φ<sub><i>i</i></sub> is 1 at node <i>i</i>, 0 at all others, and nonzero on only two elements";
+    },
+
+    assembly: function (s, p) {
+      var N = s.NA, n = N - 1, e = Math.min(s.el, N), g = p.g(null), i, j;
+      var x0 = 90, x1 = 510, ym = 40;
+      p.line(g, x0, ym, x1, ym, "curve thin");
+      p.line(g, x0 + (e - 1) * (x1 - x0) / N, ym, x0 + e * (x1 - x0) / N, ym, "curve c-warm");
+      for (i = 0; i <= N; i++) {
+        var xx = x0 + i * (x1 - x0) / N;
+        p.circle(g, xx, ym, 4, i === 0 || i === N ? "hollow c-muted" : "dot");
+        p.text(g, xx, ym - 10, String(i));
+      }
+      var cs = Math.min(300 / n, 34), mx = 300 - n * cs / 2, my = 75;
+      var inBlock = function (a) { return a === e - 2 || a === e - 1; };
+      for (i = 0; i < n; i++) for (j = 0; j < n; j++) {
+        var v = i === j ? 2 : Math.abs(i - j) === 1 ? -1 : 0;
+        var rc = p.rect(g, mx + j * cs, my + i * cs, cs - 1, cs - 1, "cell");
+        rc.style.fill = v ? "color-mix(in srgb, var(" + (v > 0 ? "--focus" : "--warm") + ") " + (v > 0 ? 60 : 35) + "%, var(--surface))" : "color-mix(in srgb, var(--ink) 5%, var(--surface))";
+        if (v && cs >= 24) p.text(g, mx + j * cs + cs / 2, my + i * cs + cs / 2 + 5, v > 0 ? "2" : "−1");
+      }
+      for (i = 0; i < n; i++) for (j = 0; j < n; j++) if (inBlock(i) && inBlock(j))
+        p.rect(g, mx + j * cs, my + i * cs, cs - 1, cs - 1, "curve thin c-warm");
+      p.label("as-K", "K = \\tfrac1h", mx - 8, my + n * cs / 2, "w");
+      var ke = e === 1 || e === N ? "touches a boundary node, so only one entry (1/h on the diagonal) enters K" : "adds the 2 × 2 block (1/h)[[1, −1], [−1, 1]] to rows and columns " + (e - 1) + " and " + e;
+      return "element " + e + " " + ke + " &nbsp;·&nbsp; each interior row collects two such blocks: 2, −1, −1 &nbsp;·&nbsp; " + (3 * n - 2) + " nonzeros out of " + n * n + ": K is sparse, symmetric and positive definite";
+    },
+
+    solve: function (s, p) {
+      var N = s.NS, U = FE.solve(N), E = FE.errors(N, U), sc = scale([-0.08, 1.12], [-0.7, 1.6]), X = sc.x, Y = sc.y, g = p.g(null, true), i;
+      p.axes(sc, { xticks: [0.5, 1], yticks: [1], xlabel: "x" });
+      FE.curve(p, g, sc, FE.u, "curve thin");
+      p.poly(g, U.map(function (v, k) { return [X(k / N), Y(v)]; }), "curve c-accent");
+      if (N <= 32) for (i = 1; i < N; i++) p.circle(g, X(i / N), Y(U[i]), 3.5, "dot c-accent");
+      p.label("so-uh", "u_h", X(0.18), Y(U[Math.round(0.18 * N)] || FE.u(0.18)) - 6, "nw");
+      return "solve <i>KU</i> = <i>F</i> with " + (N - 1) + " unknowns &nbsp;·&nbsp; errors: L² " + sci(E.L2) + ", energy ‖(<i>u</i> − <i>u<sub>h</sub></i>)′‖ " + sci(E.H1) +
+        " &nbsp;·&nbsp; at the nodes only " + sci(Math.max(E.node, 1e-16)) + ": in 1-D, linear elements are exact at the nodes up to quadrature";
+    },
+
+    convergence: function (s, p) {
+      var sc = scale([-2.65, -0.05], [-5.6, 0.6]), X = sc.x, Y = sc.y, g = p.g(null), k, L2 = [], H1 = [];
+      for (k = 1; k <= 8; k++) { var N = Math.pow(2, k), E = FE.errors(N, FE.solve(N)); L2.push([X(-Math.log10(N)), Y(Math.log10(E.L2))]); H1.push([X(-Math.log10(N)), Y(Math.log10(E.H1))]); }
+      for (k = -5; k <= 0; k++) { p.line(g, X(-2.65), Y(k), X(-0.05), Y(k), "grid"); p.text(g, X(-2.65) - 6, Y(k) + 5, "1e" + k, "end"); }
+      [2, 8, 32, 128].forEach(function (N) { var x = X(-Math.log10(N)); p.line(g, x, Y(-5.6), x, Y(0.6), "grid"); p.text(g, x, Y(-5.6) + 18, "h = 1/" + N); });
+      p.poly(g, H1, "curve c-warm"); p.poly(g, L2, "curve c-accent");
+      H1.forEach(function (q, i) { p.circle(g, q[0], q[1], i === s.kp - 1 ? 6.5 : 3.5, "dot c-warm"); });
+      L2.forEach(function (q, i) { p.circle(g, q[0], q[1], i === s.kp - 1 ? 6.5 : 3.5, "dot c-accent"); });
+      p.label("cv-h", "\\lVert (u - u_h)' \\rVert \\sim h", H1[4][0], H1[4][1] - 10, "nw");
+      p.label("cv-l", "\\lVert u - u_h \\rVert \\sim h^2", L2[4][0], L2[4][1] + 10, "se");
+      var N0 = Math.pow(2, s.kp), E0 = FE.errors(N0, FE.solve(N0)), E1 = FE.errors(2 * N0, FE.solve(2 * N0));
+      return "<i>N</i> = " + N0 + ": energy error " + sci(E0.H1) + ", L² error " + sci(E0.L2) + " &nbsp;·&nbsp; halving <i>h</i> divides them by " + num(E0.H1 / E1.H1, 2) + " and " + num(E0.L2 / E1.L2, 2) +
+        " &nbsp;·&nbsp; slopes 1 and 2 on this log–log plot";
+    },
+
+    application: function (s, p) {
+      var sc = this.sc = scale([-1.75, 1.75], [-1.142, 1.142], this.box), X = sc.x, Y = sc.y, sol = FE.plate(s.mesh, s.src, s.load === "uniform");
+      var top = Math.max.apply(null, sol.U.concat([1e-12])), g = p.g(null);
+      sol.tris.forEach(function (t) {
+        var v = 0;
+        t.I.forEach(function (k) { v += k >= 0 ? sol.U[k] : 0; });
+        var e = p.poly(g, t.P.map(function (q) { return [X(q[0]), Y(q[1])]; }), "cell", true);
+        e.style.fill = "color-mix(in srgb, var(--warm) " + Math.round(8 + 87 * v / 3 / top) + "%, var(--surface))";
+        if (s.mesh <= 24) { e.style.stroke = "color-mix(in srgb, var(--ink) 14%, transparent)"; e.style.strokeWidth = "0.6"; }
+      });
+      p.poly(g, [[-1, -1], [0, -1], [0, 0], [1, 0], [1, 1], [-1, 1]].map(function (q) { return [X(q[0]), Y(q[1])]; }), "curve thin", true);
+      p.label("ap-c", "\\text{re-entrant corner}", X(0) + 6, Y(0) + 6, "se");
+      if (s.load !== "uniform") {
+        p.circle(g, X(s.src[0]), Y(s.src[1]), 7, "hollow c-accent");
+        p.circle(g, X(s.src[0]), Y(s.src[1]), 18, "hitc");
+      }
+      return sol.nodes.length + " unknowns on " + sol.tris.length + " triangles &nbsp;·&nbsp; conjugate gradient converged in " + sol.it + " iterations &nbsp;·&nbsp; edges held at 0, hottest point " + num(top, 3);
+    }
+  };
+
   window.Figures = { specs: specs, mount: mount };
 })();
