@@ -15,4 +15,4 @@ $$\hat A_{i,t} = \frac{r_i - \operatorname{mean}(r_1, \dots, r_G)}{\operatorname
 
 for every token $$t$$ of answer $$i$$. Better-than-average answers are pushed up, worse ones down. When the whole group is right, or the whole group is wrong, every advantage is 0 and the question teaches nothing. Try a success rate of 0% or 100%.
 
-The formula looks terrifying. The chapters build it piece by piece: the reinforcement-learning objective, why it needs a trust region, how TRPO solves it, how PPO simplifies TRPO, and finally what GRPO changes in PPO.
+The formula looks terrifying. The blocks build it piece by piece: the reinforcement-learning objective, why it needs a trust region, how TRPO solves it, how PPO simplifies TRPO, and finally what GRPO changes in PPO.

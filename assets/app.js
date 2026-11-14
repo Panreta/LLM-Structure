@@ -59,7 +59,7 @@
   // A diagram with `figure:` is drawn as a classical figure (assets/figures.js);
   // without one, as a flow of blocks.
   function hasFigure(d) { return !!(d.figure && window.Figures && window.Figures.specs[d.figure]); }
-  // A story figure reads its blocks as numbered chapters, in order.
+  // A story figure reads its blocks as numbered blocks, in order.
   function isStory(d) { return hasFigure(d) && !!window.Figures.specs[d.figure].story; }
   function find(id) { return cur && blocksOf(cur.id).filter(function (b) { return b.id === id; })[0] || null; }
 
@@ -133,7 +133,7 @@
       }
       main.appendChild(el("h2", "card-title", d.title));
       if (d.description) main.appendChild(el("p", "card-desc", d.description));
-      var noun = isStory(d) ? "chapter" : hasFigure(d) ? "part" : "block";
+      var noun = "block";
       main.appendChild(el("p", "card-count", bs.length + " " + noun + (bs.length === 1 ? "" : "s")));
 
       // Preview: a thumbnail of the figure, or a spine with one bar per block.
@@ -230,7 +230,7 @@
       typeset: typeset
     });
     var story = isStory(cur), parts = el("div", "parts");
-    parts.appendChild(el("p", "parts-title", story ? "Chapters" : "Parts of this figure"));
+    parts.appendChild(el("p", "parts-title", "Blocks"));
     var row = el("div", "chips");
     bs.forEach(function (b, i) {
       var c = el("button", "chip chip-sm", story ? (i + 1) + ". " + b.title : b.title);
@@ -330,7 +330,7 @@
 
     if (isStory(cur)) {
       var bs = blocksOf(cur.id), i = bs.indexOf(b), nav = el("nav", "story-nav");
-      nav.setAttribute("aria-label", "Chapters");
+      nav.setAttribute("aria-label", "Blocks");
       [[bs[i - 1], "prev", "← "], [bs[i + 1], "next", ""]].forEach(function (t) {
         if (!t[0]) { nav.appendChild(el("span")); return; }
         var n = el("button", "story-step " + t[1], t[2] + t[0].title + (t[1] === "next" ? " →" : ""));

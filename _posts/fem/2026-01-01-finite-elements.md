@@ -9,7 +9,7 @@ A basis is given by the **hat functions** $$\phi_i$$, equal to 1 at node $$i$$ a
 
 Two properties make the method work:
 
-1. **Local support.** $$\phi_i$$ is nonzero on only two elements, so most pairs $$\phi_i, \phi_j$$ do not overlap. That makes the matrix in the next chapter sparse.
+1. **Local support.** $$\phi_i$$ is nonzero on only two elements, so most pairs $$\phi_i, \phi_j$$ do not overlap. That makes the matrix in the next block sparse.
 2. **Approximation.** The interpolant $$I_h u = \sum_i u(x_i)\, \phi_i$$ satisfies $$\lVert (u - I_h u)' \rVert \le C h \lVert u'' \rVert$$. With Céa's lemma, $$\lVert (u - u_h)' \rVert = O(h)$$.
 
 Hat functions are in $$H^1_0$$ even though they have kinks: their derivatives are step functions, which is all the weak form needs. This is where weakening pays off.

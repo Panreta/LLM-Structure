@@ -10,6 +10,6 @@ The theory predicts how fast the error falls as the mesh is refined.
 
 **The figure** plots the measured errors for $$N = 2, 4, \dots, 256$$ on log–log axes. The lines have slopes 1 (brown, energy) and 2 (blue, $$L^2$$): halving $$h$$ halves the energy error and quarters the $$L^2$$ error, as the readout confirms.
 
-These rates need $$u'' \in L^2$$. When the solution is less smooth, for instance near a corner, the rates drop. The next chapter shows such a case.
+These rates need $$u'' \in L^2$$. When the solution is less smooth, for instance near a corner, the rates drop. The next block shows such a case.
 
 Higher-degree elements (quadratics, cubics) raise both rates by one per degree when the solution is smooth enough. Adaptive refinement (smaller elements only where the error is large) recovers optimal rates for singular solutions.

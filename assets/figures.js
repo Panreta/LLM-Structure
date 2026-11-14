@@ -450,7 +450,7 @@
     }
   };
 
-  // From gradient descent to Muon, one optimizer per chapter, on the valley
+  // From gradient descent to Muon, one optimizer per block, on the valley
   // f(x) = ½(x₁ − 1.2)² + 12.5(x₂ − 0.4)² (curvatures 1 and 25).
   var GD = { A: [1.2, 0.4], K: 25, B2: 0.99 };
   GD.f = function (v) { var a = v[0] - GD.A[0], b = v[1] - GD.A[1]; return (a * a + GD.K * b * b) / 2; };
@@ -518,7 +518,7 @@
     box: { l: 12, r: 12, t: 12, b: 12 },
     story: true,
     controls: function (s) { return GD.controls[s.ch] || []; },
-    hint: "Each chapter swaps in a new optimizer; the dashed path is the one it improves on. Tap empty space to move the start.",
+    hint: "Each block swaps in a new optimizer; the dashed path is the one it improves on. Tap empty space to move the start.",
     init: function (s) {
       s.ch = "momentum";
       s.x0 = [-2.2, 1.5];
@@ -673,7 +673,7 @@
     }
   };
 
-  // High-dimensional geometry, one classical plot per chapter.
+  // High-dimensional geometry, one classical plot per block.
   var HD = {};
   HD.lgamma = function (z) {
     if (z < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * z)) - HD.lgamma(1 - z);
@@ -790,7 +790,7 @@
     alt: "Plots about high-dimensional space: spheres packed in a box, the volume of the unit ball by dimension, the radius distribution inside a ball, the length of a random Gaussian vector, the angle between two random vectors, and distances under a random projection.",
     story: true,
     controls: function (s) { return HD.controls[s.ch] || []; },
-    hint: "Each chapter has its own plot. Raise the dimension and watch the mass concentrate.",
+    hint: "Each block has its own plot. Raise the dimension and watch the mass concentrate.",
     init: function (s, thumb) {
       s.ch = thumb ? "corner-spheres" : "unit-norm";
       this.box = thumb ? { l: 12, r: 12, t: 12, b: 12 } : BOX;
@@ -930,7 +930,7 @@
     }
   };
 
-  // From MDPs through TRPO and PPO to GRPO. Most chapters use one running
+  // From MDPs through TRPO and PPO to GRPO. Most blocks use one running
   // example small enough to solve exactly: states A and B, actions "stay"
   // and "move", and one policy parameter θ with π(move | s) = σ(θ).
   var RL = { R: [[0, -0.1], [1, 0]] };
@@ -1014,7 +1014,7 @@
     "ppo-clip": "Switch the sign of the advantage."
   };
 
-  // The θ′ axis shared by the trust-region chapters: J, L and the region.
+  // The θ′ axis shared by the trust-region blocks: J, L and the region.
   function policyAxis(s, p, opts) {
     var g = s.gamma, S = RL.solve(s.th, g), xs = [], Js = [], Ls = [], i;
     for (i = 0; i <= 340; i++) {

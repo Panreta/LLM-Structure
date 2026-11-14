@@ -27,7 +27,7 @@
   title: From gradient descent to Muon
   labels: [Optimization, Calculus, Large Language Model]
   figure: gradient-descent
-  description: "One narrow valley, nine chapters: gradient descent, momentum, Nesterov, RMSProp, Adam, AdamW and Muon, each fixing what the last one got wrong."
+  description: "One narrow valley, nine blocks: gradient descent, momentum, Nesterov, RMSProp, Adam, AdamW and Muon, each fixing what the last one got wrong."
 
 - id: least-squares
   title: Least squares

@@ -9,8 +9,8 @@ A **classical** (strong) solution is a function $$u \in C^2$$ that satisfies the
 
 - a point load or a jump in $$f$$ already breaks it;
 - so do a material coefficient that jumps, as in $$-(\kappa u')' = f$$ for a bar made of two metals;
-- and so do domains with corners in 2-D or 3-D, like the plate in the last chapter.
+- and so do domains with corners in 2-D or 3-D, like the plate in the last block.
 
 The finite element method starts by weakening what "solution" means.
 
-**The figure** shows the example used in every chapter. With $$f(x) = \pi^2 \sin \pi x + 1.6\pi^2 \sin 2\pi x$$ (brown, scaled down), the exact solution is $$u(x) = \sin \pi x + 0.4 \sin 2\pi x$$ (blue). Knowing $$u$$ exactly lets us measure the numerical error later.
+**The figure** shows the example used in every block. With $$f(x) = \pi^2 \sin \pi x + 1.6\pi^2 \sin 2\pi x$$ (brown, scaled down), the exact solution is $$u(x) = \sin \pi x + 0.4 \sin 2\pi x$$ (blue). Knowing $$u$$ exactly lets us measure the numerical error later.
