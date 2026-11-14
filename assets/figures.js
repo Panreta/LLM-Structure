@@ -2581,5 +2581,274 @@
     }
   };
 
+  // From Brownian motion to Black–Scholes. Every figure simulates the
+  // statement it illustrates; tap a path figure for new randomness.
+  var BS = { S0: 100, K: 100, T: 1 };
+  BS.Phi = function (x) {
+    var t = 1 / (1 + 0.3275911 * Math.abs(x) / Math.SQRT2), y = Math.exp(-x * x / 2);
+    var e = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * y;
+    return x >= 0 ? 0.5 * (1 + e) : 0.5 * (1 - e);
+  };
+  BS.d1 = function (S, K, r, s, tau) { return (Math.log(S / K) + (r + s * s / 2) * tau) / (s * Math.sqrt(tau)); };
+  BS.call = function (S, K, r, s, tau) {
+    if (tau <= 1e-12) return Math.max(S - K, 0);
+    var d1 = BS.d1(S, K, r, s, tau);
+    return S * BS.Phi(d1) - K * Math.exp(-r * tau) * BS.Phi(d1 - s * Math.sqrt(tau));
+  };
+  // Brownian path on [0, T] with n steps: W[0..n].
+  BS.path = function (seed, n, T) {
+    var rnd = HD.rng(seed), W = [0], h = Math.sqrt(T / n);
+    for (var i = 0; i < n; i++) W.push(W[i] + h * rnd());
+    return W;
+  };
+  BS.fine = 4096;
+  BS.base = function (s) { return BS.path(1000 + (s.bseed || 0), BS.fine, 1); };
+  // Sample a fine path at n equal steps.
+  BS.coarse = function (W, n) { var m = BS.fine / n, out = []; for (var i = 0; i <= n; i++) out.push(W[i * m]); return out; };
+  BS.line = function (p, g, sc, ts, ys, cls) { p.poly(g, ts.map(function (t, i) { return [sc.x(t), sc.y(ys[i])]; }), cls); };
+  BS.grid = function (n, T) { var t = []; for (var i = 0; i <= n; i++) t.push(T * i / n); return t; };
+  // Delta hedging of the at-the-money call along one real-world GBM path.
+  BS.hedge = function (seed, n, keep) {
+    var r = 0.03, s = 0.2, mu = 0.08, T = BS.T, dt = T / n, rnd = HD.rng(seed), S = BS.S0;
+    var X = BS.call(S, BS.K, r, s, T), Ss = [S], Xs = [X], Vs = [X];
+    for (var i = 0; i < n; i++) {
+      var tau = T - i * dt, D = BS.Phi(BS.d1(S, BS.K, r, s, tau)), cash = X - D * S;
+      S = S * Math.exp((mu - s * s / 2) * dt + s * Math.sqrt(dt) * rnd());
+      X = D * S + cash * Math.exp(r * dt);
+      if (keep) { Ss.push(S); Xs.push(X); Vs.push(BS.call(S, BS.K, r, s, tau - dt)); }
+    }
+    return { S: Ss, X: Xs, V: Vs, err: X - Math.max(S - BS.K, 0), ST: S };
+  };
+
+  function pw(key, label, lo, hi, v) { return { key: key, label: label, min: lo, max: hi, step: 1, value: v, show: function (k) { return "n = " + Math.pow(2, k); } }; }
+  BS.controls = {
+    "random-walk": [pw("rwk", "Steps per unit time", 1, 10, 4)],
+    "brownian-motion": [{ key: "tb", label: "Time", min: 0.05, max: 1, step: 0.01, value: 0.6, show: function (v) { return "t = " + num(v); } }],
+    "quadratic-variation": [pw("qk", "Partition", 2, 12, 5)],
+    "ito-integral": [pw("ik", "Partition", 2, 11, 6)],
+    "ito-lemma": [pw("lk", "Partition", 2, 11, 6)],
+    gbm: [
+      { key: "gmu", label: "Drift", min: -0.2, max: 0.4, step: 0.01, value: 0.1, show: function (v) { return "μ = " + num(v); } },
+      { key: "gsig", label: "Volatility", min: 0.05, max: 0.8, step: 0.01, value: 0.3, show: function (v) { return "σ = " + num(v); } }
+    ],
+    "black-scholes-pde": [{ key: "hk", label: "Rebalances", min: 2, max: 10, step: 1, value: 5, show: function (k) { return Math.pow(2, k) + " trades"; } }],
+    "black-scholes-formula": [
+      { key: "fsig", label: "Volatility", min: 0.05, max: 0.8, step: 0.01, value: 0.2, show: function (v) { return "σ = " + num(v); } },
+      { key: "fr", label: "Interest rate", min: 0, max: 0.1, step: 0.005, value: 0.03, show: function (v) { return "r = " + num(v, 3); } }
+    ],
+    "risk-neutral": [
+      { key: "qsig", label: "Volatility", min: 0.05, max: 0.6, step: 0.01, value: 0.2, show: function (v) { return "σ = " + num(v); } },
+      { key: "nmc", label: "Samples", min: 500, max: 20000, step: 500, value: 4000, show: function (v) { return String(v); } }
+    ]
+  };
+
+  specs["black-scholes"] = {
+    alt: "Figures from Brownian motion to Black–Scholes: random walks converging to Brownian motion, Brownian paths with their spread, quadratic variation, the Itô integral, Itô's lemma, geometric Brownian motion, delta hedging, the Black–Scholes price curves, and Monte Carlo risk-neutral pricing.",
+    story: true,
+    controls: function (s) { return BS.controls[s.ch] || []; },
+    init: function (s, thumb) {
+      s.ch = thumb ? "gbm" : "random-walk";
+      for (var c in BS.controls) BS.controls[c].forEach(function (o) { s[o.key] = o.value; });
+      s.bseed = 0;
+      this.box = BOX;
+    },
+    select: function (s, slug) {
+      if (!slug || slug === s.ch || !BS.controls[slug]) return false;
+      s.ch = slug;
+      return true;
+    },
+    render: function (s, p) { return this[s.ch](s, p) + (s.ch === "black-scholes-formula" ? "" : " <span class=\"muted\">Tap the figure for new random paths.</span>"); },
+    click: function (s) {
+      if (s.ch === "black-scholes-formula") return false;
+      s.bseed++;
+      return true;
+    },
+    describe: byBlock({
+      "random-walk": "Five scaled random walks: each takes <i>n</i> steps of ±1 per unit time and is divided by √<i>n</i>. Dashed: ±√<i>t</i> and ±2√<i>t</i>. As <i>n</i> grows the jagged walks become Brownian paths.",
+      "brownian-motion": "Thirty Brownian paths on [0, 1]. Dashed: ±√<i>t</i> and ±2√<i>t</i>. At the chosen time <i>t</i>, the sideways blue curve is the density of <i>W<sub>t</sub></i> ~ N(0, <i>t</i>), and the dots are where the paths are.",
+      "quadratic-variation": "Gray: one Brownian path <i>W<sub>t</sub></i>. Blue: its quadratic variation along a partition with <i>n</i> steps, the running sum of squared increments. Dashed: the line <i>y</i> = <i>t</i> it converges to.",
+      "ito-integral": "Along one Brownian path: blue, the left-point sums Σ <i>W</i>(<i>t<sub>i</sub></i>)Δ<i>W</i> that define the Itô integral ∫<i>W</i> d<i>W</i>; dashed black, ½<i>W<sub>t</sub></i>² − ½<i>t</i>; brown, the midpoint (Stratonovich) sums, equal to ½<i>W<sub>t</sub></i>².",
+      "ito-lemma": "Along one Brownian path: black, <i>e</i><sup><i>W<sub>t</sub></i></sup>; blue dashed, Itô's lemma 1 + ∫<i>e<sup>W</sup></i> d<i>W</i> + ½∫<i>e<sup>W</sup></i> d<i>t</i> summed on the partition; brown, the ordinary chain rule 1 + ∫<i>e<sup>W</sup></i> d<i>W</i>, which misses the ½<i>f</i>″ term.",
+      gbm: "Twenty paths of geometric Brownian motion from <i>S</i><sub>0</sub> = 100 over two years. Dashed black: the mean <i>S</i><sub>0</sub><i>e</i><sup>μ<i>t</i></sup>. Dashed blue: the median <i>S</i><sub>0</sub><i>e</i><sup>(μ − σ²/2)<i>t</i></sup>, which is lower.",
+      "black-scholes-pde": "One stock path (gray, right scale) and the at-the-money call written on it. Black: the Black–Scholes value <i>V</i>(<i>t</i>, <i>S<sub>t</sub></i>). Blue: a self-financing portfolio holding Δ = ∂<i>V</i>/∂<i>S</i> shares, rebalanced at the chosen number of dates. The two end at the payoff (<i>S<sub>T</sub></i> − <i>K</i>)⁺ up to a hedging error.",
+      "black-scholes-formula": "Black–Scholes call prices against the stock price <i>S</i> for strike <i>K</i> = 100 and times to maturity τ = 1, 0.5 and 0.1 years (blue, darker for longer). Black: the payoff (<i>S</i> − <i>K</i>)⁺ at τ = 0.",
+      "risk-neutral": "Histogram of simulated <i>S<sub>T</sub></i> under the risk-neutral measure (drift <i>r</i>), with the lognormal density in blue. Brown: the call payoff (<i>S<sub>T</sub></i> − <i>K</i>)⁺. Its discounted average is the Monte Carlo price."
+    }),
+
+    "random-walk": function (s, p) {
+      var n = Math.pow(2, s.rwk), sc = scale([-0.04, 1.08], [-2.9, 2.9]), X = sc.x, Y = sc.y, g = p.g(null, true), k, i;
+      var env = [];
+      for (i = 0; i <= 100; i++) env.push(i / 100);
+      [[1, "curve thin c-muted dash"], [2, "curve thin c-muted dash"]].forEach(function (e) {
+        BS.line(p, g, sc, env, env.map(function (t) { return e[0] * Math.sqrt(t); }), e[1]);
+        BS.line(p, g, sc, env, env.map(function (t) { return -e[0] * Math.sqrt(t); }), e[1]);
+      });
+      var cls = ["c-accent", "c-warm", "", "c-accent", "c-warm"], ends = [];
+      for (k = 0; k < 5; k++) {
+        var u = RL.uniform(7919 * (k + 1) + 31 * (s.bseed || 0)), S = 0, pts = [[X(0), Y(0)]];
+        for (i = 1; i <= n; i++) {
+          var step = u() < 0.5 ? -1 : 1;
+          pts.push([X((i - 1) / n + 1 / n), Y(S / Math.sqrt(n))]);
+          S += step;
+          pts.push([X(i / n), Y(S / Math.sqrt(n))]);
+          if (n > 64) pts.pop(), pts.pop(), pts.push([X(i / n), Y(S / Math.sqrt(n))]);
+        }
+        p.poly(g, pts, "curve thin " + cls[k]);
+        ends.push(S / Math.sqrt(n));
+      }
+      p.axes(sc, { xticks: [0.5, 1], yticks: [-2, -1, 1, 2], xlabel: "t" });
+      p.label("rw-f", "W^{(n)}_t = \\frac{1}{\\sqrt n}\\, S_{\\lfloor nt \\rfloor}, \\quad S_k = \\xi_1 + \\cdots + \\xi_k", X(0.02), Y(2.8), "se");
+      p.label("rw-e", "\\pm 2\\sqrt t", X(1), Y(2), "e");
+      return "<i>n</i> = " + n + " steps of size 1/√<i>n</i> = " + num(1 / Math.sqrt(n), 3) + " &nbsp;·&nbsp; Var <i>W</i><sup>(<i>n</i>)</sup><sub>1</sub> = 1 for every <i>n</i> &nbsp;·&nbsp; end values: " + ends.map(function (v) { return num(v, 2); }).join(", ");
+    },
+
+    "brownian-motion": function (s, p) {
+      var t0 = s.tb, n = 256, ts = BS.grid(n, 1), sc = scale([-0.04, 1.32], [-2.9, 2.9]), X = sc.x, Y = sc.y, g = p.g(null, true), k, i, ends = [];
+      for (k = 0; k < 30; k++) {
+        var W = BS.path(500 + 37 * k + 1000 * (s.bseed || 0), n, 1);
+        BS.line(p, g, sc, ts, W, "curve thin c-muted");
+        ends.push(W[Math.round(t0 * n)]);
+      }
+      [1, 2].forEach(function (m) {
+        BS.line(p, g, sc, ts, ts.map(function (t) { return m * Math.sqrt(t); }), "curve thin dash");
+        BS.line(p, g, sc, ts, ts.map(function (t) { return -m * Math.sqrt(t); }), "curve thin dash");
+      });
+      p.line(g, X(t0), Y(-2.9), X(t0), Y(2.9), "curve thin c-accent dash");
+      var dens = [], sd = Math.sqrt(t0);
+      for (i = 0; i <= 120; i++) { var y = -2.9 + 5.8 * i / 120; dens.push([X(t0) + 0.28 * sc.sx * ND.phi(y, 0, sd) / ND.phi(0, 0, sd), Y(y)]); }
+      p.poly(g, dens, "curve c-accent");
+      ends.forEach(function (v) { p.circle(g, X(t0), Y(v), 3, "dot c-accent"); });
+      p.axes(sc, { xticks: [0.5, 1], yticks: [-2, -1, 1, 2], xlabel: "t" });
+      p.label("bm-d", "W_t \\sim \\mathcal{N}(0, t)", X(t0) + 0.3 * sc.sx, Y(0), "e");
+      p.label("bm-e", "\\pm 2\\sqrt t", X(1), Y(-2), "e");
+      var m = 0, v = 0; ends.forEach(function (e) { m += e / 30; }); ends.forEach(function (e) { v += (e - m) * (e - m) / 29; });
+      return "<i>t</i> = " + num(t0) + ": the 30 paths have sample mean " + num(m, 3) + " and sample variance " + num(v, 3) + " (theory 0 and " + num(t0, 2) + ")";
+    },
+
+    "quadratic-variation": function (s, p) {
+      var n = Math.pow(2, s.qk), W = BS.base(s), Wc = BS.coarse(W, n), ts = BS.grid(n, 1), q = [0], tv = 0, i;
+      for (i = 0; i < n; i++) { var d = Wc[i + 1] - Wc[i]; q.push(q[i] + d * d); tv += Math.abs(d); }
+      var lo = Math.min(-0.5, Math.min.apply(null, W)), hi = Math.max(1.6, Math.max.apply(null, W), q[n] + 0.2);
+      var sc = scale([-0.04, 1.08], [lo - 0.2, hi + 0.25]), g = p.g(null, true);
+      BS.line(p, g, sc, BS.grid(BS.fine, 1).filter(function (t, k) { return k % 4 === 0; }), W.filter(function (w, k) { return k % 4 === 0; }), "curve thin c-muted");
+      BS.line(p, g, sc, [0, 1], [0, 1], "curve thin dash");
+      BS.line(p, g, sc, ts, q, "curve c-accent");
+      p.axes(sc, { xticks: [0.5, 1], yticks: [1], xlabel: "t" });
+      p.label("qv-f", "\\textstyle\\sum_{t_i \\le t} (W_{t_{i+1}} - W_{t_i})^2", sc.x(0.6), sc.y(q[Math.round(0.6 * n)]) - 6, "se");
+      p.label("qv-t", "y = t", sc.x(0.95), sc.y(0.95), "nw");
+      p.label("qv-w", "W_t", sc.x(0.02), sc.y(W[80]), "se");
+      return "partition of [0, 1] into <i>n</i> = " + n + " steps &nbsp;·&nbsp; quadratic variation Σ(Δ<i>W</i>)² = " + num(q[n], 4) + " → 1 &nbsp;·&nbsp; total variation Σ|Δ<i>W</i>| = " + num(tv, 2) + " (about √(2<i>n</i>/π) = " + num(Math.sqrt(2 * n / Math.PI), 2) + ", unbounded)";
+    },
+
+    "ito-integral": function (s, p) {
+      var n = Math.pow(2, s.ik), W = BS.coarse(BS.base(s), n), ts = BS.grid(n, 1), L = [0], M = [0], E = [], i;
+      for (i = 0; i < n; i++) { var d = W[i + 1] - W[i]; L.push(L[i] + W[i] * d); M.push(M[i] + 0.5 * (W[i] + W[i + 1]) * d); }
+      ts.forEach(function (t, k) { E.push(0.5 * W[k] * W[k] - 0.5 * t); });
+      var all = L.concat(M, E), sc = scale([-0.04, 1.08], [Math.min.apply(null, all) - 0.3, Math.max.apply(null, all) + 0.5]), g = p.g(null, true);
+      BS.line(p, g, sc, ts, M, "curve c-warm");
+      BS.line(p, g, sc, ts, E, "curve thin dash");
+      BS.line(p, g, sc, ts, L, "curve c-accent");
+      p.axes(sc, { xticks: [0.5, 1], xlabel: "t" });
+      p.label("ii-l", "\\text{blue: } \\textstyle\\sum W_{t_i}\\,\\Delta W \\to \\int_0^t W\\,dW", sc.x(0.02), sc.y(sc.yd[1]) + 4, "se");
+      p.label("ii-e", "\\text{dashed: } \\tfrac12 W_t^2 - \\tfrac12 t", sc.x(0.02), sc.y(sc.yd[1]) + 30, "se");
+      p.label("ii-m", "\\text{brown: } \\textstyle\\sum \\tfrac{W_{t_i} + W_{t_{i+1}}}{2}\\Delta W = \\tfrac12 W_t^2", sc.x(0.02), sc.y(sc.yd[1]) + 56, "se");
+      return "<i>n</i> = " + n + ": left sum at <i>t</i> = 1 is " + num(L[n], 4) + ", ½<i>W</i><sub>1</sub>² − ½ = " + num(E[n], 4) + " (gap " + num(L[n] - E[n], 4) + ", which is ½(1 − Σ(Δ<i>W</i>)²)) &nbsp;·&nbsp; midpoint sum " + num(M[n], 4) + " = ½<i>W</i><sub>1</sub>²";
+    },
+
+    "ito-lemma": function (s, p) {
+      var n = Math.pow(2, s.lk), W = BS.coarse(BS.base(s), n), ts = BS.grid(n, 1), dt = 1 / n, F = W.map(Math.exp), I = [1], N = [1], i;
+      for (i = 0; i < n; i++) { var d = W[i + 1] - W[i]; I.push(I[i] + F[i] * d + 0.5 * F[i] * dt); N.push(N[i] + F[i] * d); }
+      var all = F.concat(I, N), sc = scale([-0.04, 1.08], [Math.min(0, Math.min.apply(null, all)) - 0.1, Math.max.apply(null, all) * 1.15 + 0.2]), g = p.g(null, true);
+      BS.line(p, g, sc, ts, N, "curve c-warm");
+      BS.line(p, g, sc, ts, F, "curve");
+      BS.line(p, g, sc, ts, I, "curve c-accent dash");
+      p.axes(sc, { xticks: [0.5, 1], yticks: [1], xlabel: "t" });
+      p.label("il-f", "\\text{black: } e^{W_t}", sc.x(0.02), sc.y(sc.yd[1]) + 4, "se");
+      p.label("il-i", "\\text{blue: } 1 + \\int_0^t e^{W} dW + \\tfrac12 \\int_0^t e^{W} ds", sc.x(0.02), sc.y(sc.yd[1]) + 30, "se");
+      p.label("il-n", "\\text{brown: } 1 + \\int_0^t e^{W} dW \\ (\\text{no Itô term})", sc.x(0.02), sc.y(sc.yd[1]) + 56, "se");
+      return "<i>n</i> = " + n + " at <i>t</i> = 1: <i>e</i><sup><i>W</i><sub>1</sub></sup> = " + num(F[n], 4) + ", Itô sum " + num(I[n], 4) + " (error " + num(I[n] - F[n], 4) + "), chain-rule sum " + num(N[n], 4) + " (error " + num(N[n] - F[n], 4) + ")";
+    },
+
+    gbm: function (s, p) {
+      var mu = s.gmu, sg = s.gsig, T = 2, n = 200, ts = BS.grid(n, T), k, paths = [], top = 0;
+      for (k = 0; k < 20; k++) {
+        var W = BS.path(900 + 53 * k + 1000 * (s.bseed || 0), n, T);
+        var P = W.map(function (w, i) { return BS.S0 * Math.exp((mu - sg * sg / 2) * ts[i] + sg * w); });
+        paths.push(P); top = Math.max(top, Math.max.apply(null, P));
+      }
+      top = Math.min(Math.max(top, BS.S0 * Math.exp(mu * T)) * 1.08, 600);
+      var sc = scale([-0.08, 2.16], [0, top]), g = p.g(null, true);
+      paths.forEach(function (P, i) { BS.line(p, g, sc, ts, P, "curve thin " + (i % 3 === 0 ? "c-accent" : i % 3 === 1 ? "c-muted" : "c-warm")); });
+      BS.line(p, g, sc, ts, ts.map(function (t) { return BS.S0 * Math.exp(mu * t); }), "curve dash");
+      BS.line(p, g, sc, ts, ts.map(function (t) { return BS.S0 * Math.exp((mu - sg * sg / 2) * t); }), "curve c-accent dash");
+      p.axes(sc, { xticks: [1, 2], yticks: [100, 200, 300, 400, 500].filter(function (v) { return v < top; }), xlabel: "t" });
+      p.label("gb-s", "S_t = S_0 \\exp\\!\\bigl((\\mu - \\tfrac12\\sigma^2)t + \\sigma W_t\\bigr)", sc.x(0.02), sc.y(top) + 4, "se");
+      p.label("gb-m", "\\text{dashed black: } \\mathbb{E}S_t = S_0 e^{\\mu t}", sc.x(0.02), sc.y(top) + 32, "se");
+      p.label("gb-d", "\\text{dashed blue: median } S_0 e^{(\\mu - \\sigma^2/2) t}", sc.x(0.02), sc.y(top) + 58, "se");
+      var ends = paths.map(function (P) { return P[n]; }), below = ends.filter(function (v) { return v < BS.S0 * Math.exp(mu * T); }).length;
+      return "at <i>t</i> = 2: mean " + num(BS.S0 * Math.exp(mu * T), 1) + ", median " + num(BS.S0 * Math.exp((mu - sg * sg / 2) * T), 1) + " &nbsp;·&nbsp; " + below + " of 20 paths end below the mean: a few large paths pull the mean up";
+    },
+
+    "black-scholes-pde": function (s, p) {
+      var n = Math.pow(2, s.hk), seed = 4000 + (s.bseed || 0), H = BS.hedge(seed, n, true), ts = BS.grid(n, BS.T), k, rms = 0, M = 200;
+      for (k = 0; k < M; k++) { var e = BS.hedge(9000 + k, n, false).err; rms += e * e / M; }
+      rms = Math.sqrt(rms);
+      var vmax = Math.max(Math.max.apply(null, H.X), Math.max.apply(null, H.V), 12) * 1.25;
+      var sc = scale([-0.04, 1.1], [Math.min(0, Math.min.apply(null, H.X)) - 1, vmax]), g = p.g(null, true);
+      var smin = Math.min.apply(null, H.S), smax = Math.max.apply(null, H.S), sy = function (v) { return sc.yd[0] + (v - smin + 2) / (smax - smin + 4) * (sc.yd[1] - sc.yd[0]) * 0.55; };
+      BS.line(p, g, sc, ts, H.S.map(sy), "curve thin c-muted");
+      BS.line(p, g, sc, ts, H.V, "curve");
+      BS.line(p, g, sc, ts, H.X, "curve c-accent dash");
+      p.circle(g, sc.x(1), sc.y(Math.max(H.ST - BS.K, 0)), 5, "hollow c-warm");
+      p.axes(sc, { xticks: [0.5, 1], xlabel: "t" });
+      p.label("pd-v", "\\text{black: } V(t, S_t)", sc.x(0.02), sc.y(vmax) + 4, "se");
+      p.label("pd-x", "\\text{blue: } X_t, \\ dX = \\Delta\\, dS + r(X - \\Delta S)\\,dt, \\ \\Delta = \\partial_S V", sc.x(0.02), sc.y(vmax) + 30, "se");
+      p.label("pd-s", "\\text{gray: } S_t \\ (" + Math.round(smin) + "\\text{–}" + Math.round(smax) + ")", sc.x(0.02), sc.y(vmax) + 56, "se");
+      p.label("pd-p", "(S_T - K)^+", sc.x(1) - 8, sc.y(Math.max(H.ST - BS.K, 0)), "w");
+      return "<i>S</i><sub>0</sub> = <i>K</i> = 100, σ = 0.2, <i>r</i> = 3%, real drift μ = 8%, <i>T</i> = 1 &nbsp;·&nbsp; this path: <i>S<sub>T</sub></i> = " + num(H.ST, 2) + ", payoff " + num(Math.max(H.ST - BS.K, 0), 3) + ", portfolio " + num(H.X[n], 3) +
+        " (error " + num(H.err, 3) + ") &nbsp;·&nbsp; root-mean-square error over 200 paths: " + num(rms, 3) + ", about halving when the trades quadruple";
+    },
+
+    "black-scholes-formula": function (s, p) {
+      var sg = s.fsig, r = s.fr, K = BS.K, sc = scale([46, 156], [0, 62]), X = sc.x, Y = sc.y, g = p.g(null, true), i;
+      var Ss = []; for (i = 0; i <= 220; i++) Ss.push(50 + 100 * i / 220);
+      BS.line(p, g, sc, Ss, Ss.map(function (S) { return Math.max(S - K, 0); }), "curve");
+      [[1, ""], [0.5, "thin "], [0.1, "thin "]].forEach(function (c, j) {
+        var e = p.poly(g, Ss.map(function (S) { return [X(S), Y(BS.call(S, K, r, sg, c[0]))]; }), "curve " + c[1] + "c-accent");
+        e.style.strokeOpacity = String(1 - 0.28 * j);
+      });
+      p.axes(sc, { xticks: [60, 80, 100, 120, 140], yticks: [10, 20, 30, 40, 50], xlabel: "S", ylabel: "C" });
+      p.label("bf-f", "C = S\\,\\Phi(d_1) - K e^{-r\\tau}\\Phi(d_2), \\quad d_{1,2} = \\frac{\\ln(S/K) + (r \\pm \\sigma^2/2)\\tau}{\\sigma\\sqrt\\tau}", X(48), Y(60), "se");
+      p.label("bf-p", "(S - K)^+", X(150), Y(50), "nw");
+      p.label("bf-1", "\\tau = 1", X(64), Y(BS.call(64, K, r, sg, 1)) - 4, "n");
+      var c0 = BS.call(K, K, r, sg, 1), d1 = BS.d1(K, K, r, sg, 1), gamma = Math.exp(-d1 * d1 / 2) / Math.sqrt(2 * Math.PI) / (K * sg);
+      return "at <i>S</i> = <i>K</i> = 100, τ = 1: price " + num(c0, 3) + ", delta Φ(<i>d</i><sub>1</sub>) = " + num(BS.Phi(d1), 3) + ", gamma " + num(gamma, 4) + " &nbsp;·&nbsp; put by put–call parity <i>C</i> − <i>P</i> = <i>S</i> − <i>Ke</i><sup>−<i>r</i>τ</sup>: " + num(c0 - K + K * Math.exp(-r), 3);
+    },
+
+    "risk-neutral": function (s, p) {
+      var sg = s.qsig, r = 0.03, T = BS.T, K = BS.K, N = s.nmc, rnd = HD.rng(7000 + (s.bseed || 0)), i, sum = 0, sq = 0, B = 60, lo = 30, hi = 230, w = (hi - lo) / B, bins = [];
+      for (i = 0; i < B; i++) bins.push(0);
+      for (i = 0; i < N; i++) {
+        var ST = BS.S0 * Math.exp((r - sg * sg / 2) * T + sg * Math.sqrt(T) * rnd()), pay = Math.max(ST - K, 0);
+        sum += pay; sq += pay * pay;
+        if (ST >= lo && ST < hi) bins[Math.floor((ST - lo) / w)]++;
+      }
+      var mean = sum / N, se = Math.sqrt((sq / N - mean * mean) / N), disc = Math.exp(-r * T), exact = BS.call(BS.S0, K, r, sg, T);
+      var dens = function (x) { var m = Math.log(BS.S0) + (r - sg * sg / 2) * T, v = sg * Math.sqrt(T); return Math.exp(-Math.pow(Math.log(x) - m, 2) / (2 * v * v)) / (x * v * Math.sqrt(2 * Math.PI)); };
+      var top = 0; bins.forEach(function (c) { top = Math.max(top, c / (N * w)); });
+      for (i = 0; i <= 200; i++) top = Math.max(top, dens(lo + (hi - lo) * i / 200));
+      var sc = scale([lo - 6, hi + 4], [0, top * 1.3]), X = sc.x, Y = sc.y, g = p.g(null, true);
+      bins.forEach(function (c, k) { if (c) p.rect(g, X(lo + k * w), Y(c / (N * w)), w * sc.sx - 1, Y(0) - Y(c / (N * w)), "bar"); });
+      var dc = []; for (i = 0; i <= 200; i++) { var x = lo + (hi - lo) * i / 200; dc.push([X(x), Y(dens(x))]); }
+      p.poly(g, dc, "curve c-accent");
+      var pf = []; for (i = 0; i <= 40; i++) { var x2 = K + (hi - K) * i / 40; pf.push([X(x2), Y((x2 - K) / (hi - K) * top * 1.15)]); }
+      p.poly(g, [[X(lo), Y(0)], [X(K), Y(0)]].concat(pf), "curve c-warm");
+      p.axes(sc, { xticks: [50, 100, 150, 200], xlabel: "S_T" });
+      p.label("rn-d", "S_T = S_0 e^{(r - \\sigma^2/2)T + \\sigma W^{\\mathbb{Q}}_T}", X(lo), Y(top * 1.27), "se");
+      p.label("rn-p", "(S_T - K)^+ \\ (\\text{not to scale})", X(hi - 10), Y(top * 1.1), "w");
+      return "Monte Carlo <i>e</i><sup>−<i>rT</i></sup> · mean payoff = " + num(disc * mean, 3) + " ± " + num(1.96 * disc * se, 3) + " (95%) &nbsp;·&nbsp; Black–Scholes formula " + num(exact, 3) + " &nbsp;·&nbsp; the real drift μ appears nowhere";
+    }
+  };
+
   window.Figures = { specs: specs, mount: mount };
 })();

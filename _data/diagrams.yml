@@ -70,3 +70,9 @@
   labels: [Probability]
   figure: normal
   description: "The bell curve, then ellipses in 2-D and a fog ball in 3-D that is dense inside and sparse outside, how to picture it in any dimension, and the quantum oscillator whose ground state is exactly Gaussian."
+
+- id: black-scholes
+  title: From Brownian motion to Black–Scholes
+  labels: [Probability, Calculus, Finance]
+  figure: black-scholes
+  description: "Random walks become Brownian motion; quadratic variation forces Itô's calculus; a self-financing hedge turns it into the Black–Scholes equation, its formula, and risk-neutral pricing."
