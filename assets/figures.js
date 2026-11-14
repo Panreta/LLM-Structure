@@ -930,5 +930,384 @@
     }
   };
 
+  // From MDPs through TRPO and PPO to GRPO. Most chapters use one running
+  // example small enough to solve exactly: states A and B, actions "stay"
+  // and "move", and one policy parameter θ with π(move | s) = σ(θ).
+  var RL = { R: [[0, -0.1], [1, 0]] };
+  RL.sig = function (t) { return 1 / (1 + Math.exp(-t)); };
+  RL.solve = function (th, g) {
+    var p = RL.sig(th), R = RL.R;
+    var r = [(1 - p) * R[0][0] + p * R[0][1], (1 - p) * R[1][0] + p * R[1][1]];
+    var a = 1 - g * (1 - p), b = -g * p, det = a * a - b * b;
+    var V = [(a * r[0] - b * r[1]) / det, (-b * r[0] + a * r[1]) / det];
+    var Q = [[R[0][0] + g * V[0], R[0][1] + g * V[1]], [R[1][0] + g * V[1], R[1][1] + g * V[0]]];
+    return {
+      p: p, V: V, J: V[0],
+      A: [[Q[0][0] - V[0], Q[0][1] - V[0]], [Q[1][0] - V[1], Q[1][1] - V[1]]],
+      d: [(1 - g) * a / det, -(1 - g) * b / det]
+    };
+  };
+  // Surrogate L_θ(θ′) and the average KL(π_θ ‖ π_θ′) (same in both states).
+  RL.L = function (S, g, th2) {
+    var q = RL.sig(th2), v = S.J;
+    for (var i = 0; i < 2; i++) v += S.d[i] * ((1 - q) * S.A[i][0] + q * S.A[i][1]) / (1 - g);
+    return v;
+  };
+  RL.KL = function (th, th2) {
+    var p = RL.sig(th), q = RL.sig(th2);
+    return p * Math.log(p / q) + (1 - p) * Math.log((1 - p) / (1 - q));
+  };
+  // TRPO's step in one dimension: g = L′, H = Fisher information p(1 − p).
+  RL.trpo = function (S, g, th, delta) {
+    var grad = 0, H = S.p * (1 - S.p);
+    for (var i = 0; i < 2; i++) grad += S.d[i] * H * (S.A[i][1] - S.A[i][0]) / (1 - g);
+    return { g: grad, H: H, step: Math.sqrt(2 * delta / H) * (grad >= 0 ? 1 : -1) };
+  };
+  RL.X = [-6, 2.5];
+  RL.region = function (th, delta) {
+    var lo = th, hi = th;
+    while (lo > RL.X[0] && RL.KL(th, lo - 0.01) <= delta) lo -= 0.01;
+    while (hi < RL.X[1] && RL.KL(th, hi + 0.01) <= delta) hi += 0.01;
+    return [lo, hi];
+  };
+  RL.uniform = function (seed) {
+    return function () {
+      seed = (seed + 0x6D2B79F5) | 0;
+      var t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  };
+  // Curved arrow: cubic Bézier with an arrowhead along its final tangent.
+  RL.bend = function (p, g, a, c1, c2, b, cls) {
+    p.path(g, "M" + a[0] + " " + a[1] + " C" + c1[0] + " " + c1[1] + " " + c2[0] + " " + c2[1] + " " + b[0] + " " + b[1], "curve thin " + cls);
+    var dx = b[0] - c2[0], dy = b[1] - c2[1], L = Math.sqrt(dx * dx + dy * dy) || 1, ux = dx / L, uy = dy / L, s = 11, w = 4.6;
+    p.poly(g, [b, [b[0] - ux * s - uy * w, b[1] - uy * s + ux * w], [b[0] - ux * s + uy * w, b[1] - uy * s - ux * w]], "head " + cls, true);
+  };
+
+  var TH = { key: "th", label: "Policy θ", min: -6, max: 2, step: 0.05, value: -4, show: function (v) { return "θ = " + num(v) + ", p = " + num(RL.sig(v), 3); } };
+  var GAM = { key: "gamma", label: "Discount", min: 0.5, max: 0.98, step: 0.01, value: 0.9, show: function (v) { return "γ = " + num(v); } };
+  var DEL = { key: "delta", label: "Trust region", min: 0.02, max: 1, step: 0.01, value: 0.2, show: function (v) { return "δ = " + num(v); } };
+  RL.controls = {
+    introduction: [
+      { key: "G", label: "Group size", min: 2, max: 16, step: 1, value: 8, show: function (v) { return "G = " + v; } },
+      { key: "acc", label: "Success rate", min: 0, max: 1, step: 0.05, value: 0.4, show: function (v) { return num(100 * v, 0) + "%"; } }
+    ],
+    preliminaries: [TH, GAM],
+    "build-the-model": [TH, GAM],
+    "is-it-solvable": [TH, DEL],
+    trpo: [{ key: "dTR", label: "Trust region", min: 0.1, max: 1.5, step: 0.05, value: 0.6, show: function (v) { return "δ = " + num(v); } }],
+    "conjugate-gradient": [],
+    "line-search": [TH, DEL],
+    ppo: [TH, DEL],
+    "ppo-penalty": [TH, { key: "lb", label: "Penalty", min: -1, max: 3, step: 0.05, value: 1.7, show: function (v) { var b = Math.pow(10, v); return "β = " + (b < 10 ? num(b, 2) : num(b, 0)); } }, DEL],
+    "ppo-clip": [
+      { key: "sgn", label: "Advantage", type: "choice", value: 1, options: [[1, "Â > 0"], [-1, "Â < 0"]] },
+      { key: "eps", label: "Clip range", min: 0.05, max: 0.5, step: 0.01, value: 0.2, show: function (v) { return "ε = " + num(v); } }
+    ]
+  };
+  RL.wide = { trpo: 1, "conjugate-gradient": 1, preliminaries: 1 };
+  RL.hints = {
+    introduction: "Tap empty space to sample a new group of answers.",
+    trpo: "Drag the tip of the brown gradient g.",
+    "conjugate-gradient": "Drag the start x₀.",
+    "ppo-clip": "Switch the sign of the advantage."
+  };
+
+  // The θ′ axis shared by the trust-region chapters: J, L and the region.
+  function policyAxis(s, p, opts) {
+    var g = s.gamma, S = RL.solve(s.th, g), xs = [], Js = [], Ls = [], i;
+    for (i = 0; i <= 340; i++) {
+      var t = RL.X[0] + (RL.X[1] - RL.X[0]) * i / 340;
+      xs.push(t); Js.push(RL.solve(t, g).J); Ls.push(RL.L(S, g, t));
+    }
+    var jmin = Math.min.apply(null, Js), jmax = Math.max.apply(null, Js), pad = (jmax - jmin) * 0.12;
+    var sc = scale([RL.X[0] - 0.35, RL.X[1] + 0.15], [jmin - pad, jmax + (jmax - jmin) * 0.55]);
+    var top = sc.yd[1], X = sc.x, Y = sc.y;
+    if (opts.region) {
+      var rg = RL.region(s.th, s.delta), gr = p.g(null);
+      p.rect(gr, X(rg[0]), Y(top), X(rg[1]) - X(rg[0]), Y(sc.yd[0]) - Y(top), "fill c-muted");
+      p.label("rl-tr", "\\text{KL} \\le \\delta", (X(rg[0]) + X(rg[1])) / 2, Y(top) + 4, "s");
+    }
+    p.axes(sc, { xticks: [-6, -4, -2, 0, 2], xlabel: "\\theta'" });
+    var gc = p.g(null, true);
+    var line = function (ys) { return xs.map(function (x, k) { return [X(x), Y(Math.min(Math.max(ys[k], sc.yd[0] - 1), top + 1))]; }); };
+    p.poly(gc, line(Js), "curve");
+    if (opts.L) p.poly(gc, line(Ls), "curve c-accent");
+    if (opts.extra) p.poly(gc, line(xs.map(opts.extra)), "curve c-warm");
+    var jx = RL.X[0] + 0.15;
+    p.label("rl-J", "J(\\theta')", X(jx), Y(RL.solve(jx, g).J) - 4, "ne");
+    if (opts.L) {
+      var lx = s.th + 1.1 < RL.X[1] ? s.th + 1.1 : s.th - 1.1;
+      if (RL.L(S, g, lx) < top) p.label("rl-L", "L_\\theta(\\theta')", X(lx), Y(RL.L(S, g, lx)), "nw");
+    }
+    var gm = p.g(null);
+    p.line(gm, X(s.th), Y(sc.yd[0]), X(s.th), Y(S.J), "curve thin c-muted dash");
+    p.circle(gm, X(s.th), Y(S.J), 5.5, "dot");
+    p.label("rl-th", "\\theta", X(s.th), Y(sc.yd[0]) - 4, "n");
+    return { sc: sc, S: S, xs: xs, Js: Js, Ls: Ls };
+  }
+
+  specs.grpo = {
+    alt: "Figures for the derivation of GRPO: a group of sampled answers with normalized advantages, a two-state Markov decision process, its discounted state visitation, the surrogate objective inside a trust region, TRPO's ellipse, conjugate gradient, line search, PPO's penalty, and the clipped objective.",
+    story: true,
+    controls: function (s) { return RL.controls[s.ch] || []; },
+    init: function (s) {
+      s.ch = "introduction";
+      for (var c in RL.controls) RL.controls[c].forEach(function (o) { s[o.key] = o.value; });
+      s.seed = 3;
+      s.gTR = [1.8, -0.6];
+      s.x0 = [-2.6, -1.2];
+      this.box = BOX;
+    },
+    select: function (s, slug) {
+      if (!slug || slug === s.ch || !RL.controls[slug]) return false;
+      s.ch = slug;
+      this.box = RL.wide[slug] ? { l: 12, r: 12, t: 12, b: 12 } : BOX;
+      return true;
+    },
+    render: function (s, p) {
+      var out = this[s.ch](s, p) || "";
+      return out + (RL.hints[s.ch] ? "<br><span class=\"muted\">" + RL.hints[s.ch] + "</span>" : "");
+    },
+    click: function (s, pt) {
+      if (s.ch !== "introduction") return false;
+      s.seed++;
+      return true;
+    },
+    drag: function (s, pt, phase) {
+      var sc = this.sc;
+      if (!sc || (s.ch !== "trpo" && s.ch !== "conjugate-gradient")) return false;
+      var v = s.ch === "trpo" ? s.gTR : s.x0;
+      if (phase === "start") return Math.abs(pt.x - sc.x(v[0])) + Math.abs(pt.y - sc.y(v[1])) < 28;
+      var nv = [clamp(sc.ix(pt.x), -3.1, 3.1), clamp(sc.iy(pt.y), -2, 2)];
+      if (s.ch === "trpo") s.gTR = nv; else s.x0 = nv;
+    },
+
+    // GRPO's group: G answers to one question, rewards, normalized advantages.
+    introduction: function (s, p) {
+      var u = RL.uniform(1000 * s.seed + 7), G = s.G, r = [], i, mean = 0, sd = 0;
+      for (i = 0; i < 16; i++) r.push(u() < s.acc ? 1 : 0);
+      r = r.slice(0, G);
+      r.forEach(function (v) { mean += v / G; });
+      r.forEach(function (v) { sd += (v - mean) * (v - mean) / G; });
+      sd = Math.sqrt(sd);
+      var A = r.map(function (v) { return sd > 1e-9 ? (v - mean) / sd : 0; });
+      var sc = scale([-0.2, G + 0.4], [-3.4, 3.4]), X = sc.x, Y = sc.y;
+      p.axes(sc, { yticks: [-2, -1, 1, 2], ylabel: "\\hat A_i" });
+      var g = p.g(null);
+      A.forEach(function (a, k) {
+        var x = k + 0.6;
+        if (Math.abs(a) > 1e-9) p.rect(g, X(x - 0.32), Y(Math.max(a, 0)), 0.64 * sc.sx, Math.abs(a) * sc.sy, "fill " + (a > 0 ? "c-accent" : "c-warm"));
+        if (Math.abs(a) > 1e-9) p.rect(g, X(x - 0.32), Y(Math.max(a, 0)), 0.64 * sc.sx, Math.abs(a) * sc.sy, "curve thin " + (a > 0 ? "c-accent" : "c-warm"));
+        p.circle(g, X(x), Y(3.05), 6, r[k] ? "dot c-accent" : "hollow c-muted");
+        p.text(g, X(x), Y(0) + (a > 0 ? 18 : -8), "o" + (k + 1));
+      });
+      p.label("in-r", "r_i", X(G + 0.15), Y(3.05), "e");
+      var right = r.filter(function (v) { return v; }).length;
+      return right + " of " + G + " answers correct &nbsp;·&nbsp; mean reward " + num(mean) + ", std " + num(sd) + " &nbsp;·&nbsp; " +
+        (sd > 1e-9 ? "correct answers get Â = " + signed((1 - mean) / sd) + ", wrong ones " + signed(-mean / sd) :
+          "every answer got the same reward, so every advantage is 0 and this question teaches nothing");
+    },
+
+    // The running example drawn as a state diagram.
+    preliminaries: function (s, p) {
+      var g = s.gamma, S = RL.solve(s.th, g), P = S.p, A = [215, 190], B = [385, 190], rad = 46;
+      var gd = p.g(null);
+      [[A, "A"], [B, "B"]].forEach(function (n) { p.circle(gd, n[0][0], n[0][1], rad, "hollow c-muted"); });
+      RL.bend(p, gd, [A[0] + 33, A[1] - 33], [275, 85], [325, 85], [B[0] - 33, B[1] - 33], "c-accent");
+      RL.bend(p, gd, [B[0] - 33, B[1] + 33], [325, 295], [275, 295], [A[0] + 33, A[1] + 33], "c-accent");
+      RL.bend(p, gd, [A[0] - 40, A[1] - 24], [95, 110], [95, 270], [A[0] - 40, A[1] + 24], "c-muted");
+      RL.bend(p, gd, [B[0] + 40, B[1] - 24], [505, 110], [505, 270], [B[0] + 40, B[1] + 24], "c-muted");
+      p.label("pr-A", "A", A[0], A[1] - 14, "c");
+      p.label("pr-B", "B", B[0], B[1] - 14, "c");
+      p.label("pr-VA" + S.V[0].toFixed(2), "V = " + num(S.V[0]).replace("−", "-"), A[0], A[1] + 14, "c");
+      p.label("pr-VB" + S.V[1].toFixed(2), "V = " + num(S.V[1]).replace("−", "-"), B[0], B[1] + 14, "c");
+      p.label("pr-m1", "\\text{move: } p,\\ r = -0.1", 300, 96, "n");
+      p.label("pr-m2", "\\text{move: } p,\\ r = 0", 300, 286, "s");
+      p.label("pr-s1", "\\text{stay: } 1-p,\\ r = 0", 130, 262, "s");
+      p.label("pr-s2", "\\text{stay: } 1-p,\\ r = 1", 470, 262, "s");
+      p.label("pr-st", "\\text{start}", A[0], A[1] + rad + 6, "s");
+      return "π(move | <i>s</i>) = <i>p</i> = σ(θ) = " + num(P, 3) + " &nbsp;·&nbsp; <i>V</i><sup>π</sup>(A) = " + num(S.V[0], 3) +
+        ", <i>V</i><sup>π</sup>(B) = " + num(S.V[1], 3) + " &nbsp;·&nbsp; a reward at step <i>k</i> counts γ<sup><i>k</i></sup> = " + num(g) + "<sup><i>k</i></sup>";
+    },
+
+    // Discounted state visitation: bars (1 − γ)γ^t P_t(s), split by state.
+    "build-the-model": function (s, p) {
+      var g = s.gamma, P = RL.sig(s.th), T = 40, pa = 1, t, dB = 0;
+      var sc = scale([-1.5, T + 1], [0, (1 - g) * 1.25]), X = sc.x, Y = sc.y, gb = p.g(null);
+      for (t = 0; t <= T; t++) {
+        var w = (1 - g) * Math.pow(g, t), hb = w * (1 - pa);
+        dB += hb;
+        p.rect(gb, X(t - 0.4), Y(w), 0.8 * sc.sx, (w - hb) * sc.sy, "bar");
+        p.rect(gb, X(t - 0.4), Y(hb), 0.8 * sc.sx, hb * sc.sy, "fill c-accent");
+        pa = pa * (1 - P) + (1 - pa) * P;
+      }
+      for (t = T + 1; t < 2000; t++) { dB += (1 - g) * Math.pow(g, t) * (1 - pa); pa = pa * (1 - P) + (1 - pa) * P; }
+      p.axes(sc, { xticks: [0, 10, 20, 30, 40], xlabel: "t" });
+      p.label("bm-w", "(1-\\gamma)\\gamma^t", X(1.2), Y(1 - g) - 2, "ne");
+      p.label("bm-k", "\\text{blue: in B} \\quad \\text{gray: in A}", X(T), Y((1 - g) * 1.15), "w");
+      return "visitation 𝒱<sup>π</sup>(A) = " + num(1 - dB, 3) + ", 𝒱<sup>π</sup>(B) = " + num(dB, 3) +
+        " &nbsp;·&nbsp; the bars sum to 1 &nbsp;·&nbsp; <i>J</i>(θ) = " + num(RL.solve(s.th, g).J, 3) + " = Σ<sub><i>s</i></sub> 𝒱(<i>s</i>) <i>r</i><sup>π</sup>(<i>s</i>) / (1 − γ)";
+    },
+
+    "is-it-solvable": function (s, p) {
+      var ax = policyAxis(s, p, { L: true, region: true }), sc = ax.sc, rg = RL.region(s.th, s.delta), best = s.th, i;
+      for (i = 0; i <= 200; i++) { var t = rg[0] + (rg[1] - rg[0]) * i / 200; if (RL.L(ax.S, s.gamma, t) > RL.L(ax.S, s.gamma, best)) best = t; }
+      var gb = p.g(null), Lb = RL.L(ax.S, s.gamma, best), Jb = RL.solve(best, s.gamma).J;
+      p.circle(gb, sc.x(best), sc.y(Math.min(Lb, sc.yd[1])), 5.5, "dot c-accent");
+      p.circle(gb, sc.x(best), sc.y(Jb), 5.5, "hollow");
+      return "inside the region the surrogate's best θ′ = " + num(best) + " predicts <i>J</i> = " + num(Lb, 3) + "; the true value is " + num(Jb, 3) +
+        " (from " + num(ax.S.J, 3) + ") &nbsp;·&nbsp; outside it, <i>L</i> keeps rising while <i>J</i> falls";
+    },
+
+    // TRPO's subproblem: maximize gᵀx on the ellipse ½xᵀHx ≤ δ.
+    trpo: function (s, p) {
+      var sc = this.sc = scale([-3.3, 3.3], [-2.155, 2.155], this.box), X = sc.x, Y = sc.y;
+      var H = [[1.4, 0.75], [0.75, 0.9]], det = H[0][0] * H[1][1] - H[0][1] * H[0][1];
+      var Hi = [[H[1][1] / det, -H[0][1] / det], [-H[0][1] / det, H[0][0] / det]], gv = s.gTR, d = s.dTR, i;
+      var Hig = [Hi[0][0] * gv[0] + Hi[0][1] * gv[1], Hi[1][0] * gv[0] + Hi[1][1] * gv[1]];
+      var gHg = gv[0] * Hig[0] + gv[1] * Hig[1], gHgv = gv[0] * (H[0][0] * gv[0] + H[0][1] * gv[1]) + gv[1] * (H[1][0] * gv[0] + H[1][1] * gv[1]);
+      var g0 = p.g(null);
+      p.line(g0, X(-3.3), Y(0), X(3.3), Y(0), "axisline");
+      p.line(g0, X(0), Y(-2.155), X(0), Y(2.155), "axisline");
+      var gn = Math.sqrt(gv[0] * gv[0] + gv[1] * gv[1]) || 1, ux = gv[0] / gn, uy = gv[1] / gn, gl = p.g(null, true);
+      for (i = -6; i <= 6; i++) {
+        var c = i * 0.5;
+        p.line(gl, X(c * ux - 5 * uy), Y(c * uy + 5 * ux), X(c * ux + 5 * uy), Y(c * uy - 5 * ux), "contour");
+      }
+      var ell = [], ge = p.g(null);
+      for (i = 0; i <= 120; i++) {
+        var a = i / 120 * 2 * Math.PI, u = [Math.cos(a), Math.sin(a)];
+        var q = u[0] * (H[0][0] * u[0] + H[0][1] * u[1]) + u[1] * (H[1][0] * u[0] + H[1][1] * u[1]), k = Math.sqrt(2 * d / q);
+        ell.push([X(k * u[0]), Y(k * u[1])]);
+      }
+      p.poly(ge, ell, "fill c-muted", true);
+      p.poly(ge, ell, "curve thin c-muted", true);
+      var tn = Math.sqrt(2 * d / gHgv), naive = [tn * gv[0], tn * gv[1]], ts = Math.sqrt(2 * d / gHg), best = [ts * Hig[0], ts * Hig[1]];
+      var ga = p.g(null);
+      p.arrow(ga, X(0), Y(0), X(naive[0]), Y(naive[1]), "c-muted");
+      p.arrow(ga, X(0), Y(0), X(best[0]), Y(best[1]), "c-accent");
+      p.arrow(ga, X(0), Y(0), X(gv[0]), Y(gv[1]), "c-warm");
+      p.circle(ga, X(gv[0]), Y(gv[1]), 14, "hitc");
+      p.label("tr-g", "g", X(gv[0]), Y(gv[1]), "ne");
+      p.label("tr-x", "\\theta_{k+1} - \\theta_k", X(best[0]), Y(best[1]), best[1] >= 0 ? "nw" : "sw");
+      var low = ell.reduce(function (m, q) { return q[1] > m[1] ? q : m; });
+      p.label("tr-e", "\\tfrac12 x^\\top H x \\le \\delta", low[0], low[1] + 6, "s");
+      var gain = function (v) { return gv[0] * v[0] + gv[1] * v[1]; };
+      return "best step √(2δ / gᵀH⁻¹g) · H⁻¹g gains gᵀx = " + num(gain(best), 3) + " &nbsp;·&nbsp; stepping along g itself (gray) to the boundary gains only " + num(gain(naive), 3);
+    },
+
+    // Solving Hx = g: steepest descent with exact line search vs conjugate gradient.
+    "conjugate-gradient": function (s, p) {
+      var sc = this.sc = scale([-3.3, 3.3], [-2.155, 2.155], this.box), X = sc.x, Y = sc.y, i, k;
+      var c = Math.cos(0.45), sn = Math.sin(0.45), l1 = 1, l2 = 16;
+      var A = [[l1 * c * c + l2 * sn * sn, (l1 - l2) * c * sn], [(l1 - l2) * c * sn, l1 * sn * sn + l2 * c * c]], xs = [1.2, -0.3];
+      var b = [A[0][0] * xs[0] + A[0][1] * xs[1], A[1][0] * xs[0] + A[1][1] * xs[1]];
+      function mul(v) { return [A[0][0] * v[0] + A[0][1] * v[1], A[1][0] * v[0] + A[1][1] * v[1]]; }
+      function dot(u, v) { return u[0] * v[0] + u[1] * v[1]; }
+      var gc = p.g(null, true);
+      [0.05, 0.3, 0.8, 1.6, 2.8, 4.5, 6.8, 10, 14].forEach(function (lev) {
+        var pts = [];
+        for (i = 0; i <= 96; i++) {
+          var a = i / 96 * 2 * Math.PI, u = [Math.cos(a), Math.sin(a)], q = dot(u, mul(u)), r = Math.sqrt(2 * lev / q);
+          pts.push([X(xs[0] + r * u[0]), Y(xs[1] + r * u[1])]);
+        }
+        p.poly(gc, pts, "contour", true);
+      });
+      var x = s.x0.slice(), sd = [x.slice()], r, it = 0;
+      for (k = 0; k < 60; k++) {
+        r = [b[0] - mul(x)[0], b[1] - mul(x)[1]];
+        if (dot(r, r) < 1e-10) break;
+        var al = dot(r, r) / dot(r, mul(r));
+        x = [x[0] + al * r[0], x[1] + al * r[1]]; sd.push(x.slice()); it++;
+      }
+      x = s.x0.slice(); r = [b[0] - mul(x)[0], b[1] - mul(x)[1]];
+      var pd = r.slice(), cg = [x.slice()];
+      for (k = 0; k < 2 && dot(r, r) > 1e-14; k++) {
+        var Ap = mul(pd), a2 = dot(r, r) / dot(pd, Ap);
+        x = [x[0] + a2 * pd[0], x[1] + a2 * pd[1]]; cg.push(x.slice());
+        var rn = [r[0] - a2 * Ap[0], r[1] - a2 * Ap[1]], be = dot(rn, rn) / dot(r, r);
+        pd = [rn[0] + be * pd[0], rn[1] + be * pd[1]]; r = rn;
+      }
+      var at = function (v) { return [X(v[0]), Y(v[1])]; }, gs = p.g(null, true);
+      p.poly(gs, cg.map(at), "curve c-accent");
+      cg.slice(1).forEach(function (v) { p.circle(gs, X(v[0]), Y(v[1]), 4.5, "dot c-accent"); });
+      p.poly(gs, sd.map(at), "curve thin c-warm");
+      sd.slice(1).forEach(function (v) { p.circle(gs, X(v[0]), Y(v[1]), 3, "dot c-warm"); });
+      var gx = p.g(null);
+      p.line(gx, X(xs[0]) - 7, Y(xs[1]), X(xs[0]) + 7, Y(xs[1]), "curve");
+      p.line(gx, X(xs[0]), Y(xs[1]) - 7, X(xs[0]), Y(xs[1]) + 7, "curve");
+      p.label("cg-s", "x = H^{-1} g", X(xs[0]) + 8, Y(xs[1]) + 6, "se");
+      p.circle(gx, X(s.x0[0]), Y(s.x0[1]), 6, "dot");
+      p.circle(gx, X(s.x0[0]), Y(s.x0[1]), 16, "hitc");
+      p.label("cg-0", "x_0", X(s.x0[0]) - 6, Y(s.x0[1]) - 6, "nw");
+      return "<span style=\"color:var(--warm)\">steepest descent</span>: " + it + " steps to reach the solution (zigzag) &nbsp;·&nbsp; " +
+        "<span style=\"color:var(--focus)\">conjugate gradient</span>: exactly 2 steps, one per dimension";
+    },
+
+    "line-search": function (s, p) {
+      var ax = policyAxis(s, p, {}), sc = ax.sc, g = s.gamma, tr = RL.trpo(ax.S, g, s.th, s.delta), gl = p.g(null), acc = -1, i;
+      for (i = 0; i < 8; i++) {
+        var t = s.th + Math.pow(0.5, i) * tr.step, J = RL.solve(t, g).J, ok = J > ax.S.J && RL.KL(s.th, t) <= s.delta;
+        var shown = t >= RL.X[0] - 0.3 && t <= RL.X[1] + 0.1;
+        if (shown) {
+          p.circle(gl, sc.x(t), sc.y(J), 5.5, acc < 0 && ok ? "dot c-accent" : acc < 0 ? "hollow c-warm" : "hollow c-muted");
+          if (i < 4) p.label("ls-" + i, "i = " + i, sc.x(t), sc.y(J) - 8, "n");
+        }
+        if (ok && acc < 0) { acc = i; break; }
+      }
+      var full = s.th + tr.step;
+      return "full step θ + √(2δ/H) = " + num(full) + (full > RL.X[1] ? " (off the chart)" : "") + " &nbsp;·&nbsp; " +
+        (acc >= 0 ? "first accepted: <i>i</i> = " + acc + ", θ′ = " + num(s.th + Math.pow(0.5, acc) * tr.step) + ", <i>J</i> " + num(ax.S.J, 3) + " → " + num(RL.solve(s.th + Math.pow(0.5, acc) * tr.step, g).J, 3) :
+          "no step of the first 8 improves J; stay at θ");
+    },
+
+    ppo: function (s, p) {
+      var ax = policyAxis(s, p, { L: true, region: true }), sc = ax.sc, g = s.gamma, rg = RL.region(s.th, s.delta), best = s.th, i;
+      for (i = 0; i <= 300; i++) { var t = rg[0] + (rg[1] - rg[0]) * i / 300; if (RL.L(ax.S, g, t) > RL.L(ax.S, g, best)) best = t; }
+      var tr = RL.trpo(ax.S, g, s.th, s.delta), tt = s.th + tr.step, gp = p.g(null);
+      p.circle(gp, sc.x(best), sc.y(RL.solve(best, g).J), 6, "dot c-accent");
+      if (tt <= RL.X[1] && tt >= RL.X[0]) p.circle(gp, sc.x(tt), sc.y(RL.solve(tt, g).J), 6, "hollow c-warm");
+      return "exact solution of the trust-region problem θ′ = " + num(best) + " (blue dot) &nbsp;·&nbsp; TRPO's linear-quadratic step lands at " + num(tt) +
+        " (brown ring), with true KL " + num(RL.KL(s.th, tt), 3) + " instead of δ = " + num(s.delta);
+    },
+
+    "ppo-penalty": function (s, p) {
+      var beta = Math.pow(10, s.lb), g = s.gamma, S = RL.solve(s.th, g);
+      var pen = function (t) { return RL.L(S, g, t) - beta * RL.KL(s.th, t); };
+      var ax = policyAxis(s, p, { L: true, extra: pen }), sc = ax.sc, best = s.th, i;
+      for (i = 0; i <= 400; i++) { var t = RL.X[0] + (RL.X[1] - RL.X[0]) * i / 400; if (pen(t) > pen(best)) best = t; }
+      var gp = p.g(null), d = RL.KL(s.th, best);
+      p.circle(gp, sc.x(best), sc.y(Math.min(pen(best), sc.yd[1])), 6, "dot c-warm");
+      p.circle(gp, sc.x(best), sc.y(RL.solve(best, g).J), 5.5, "hollow");
+      p.label("pp-p", "L - \\beta\\,\\text{KL}", sc.x(best), sc.y(Math.min(pen(best), sc.yd[1])) - 8, "n");
+      var rule = d < s.delta / 1.5 ? "d < δ/1.5, so β is halved next round" : d > 1.5 * s.delta ? "d > 1.5δ, so β is doubled next round" : "d is near δ, so β stays";
+      return "penalized maximizer θ′ = " + num(best) + ", true <i>J</i> " + num(S.J, 3) + " → " + num(RL.solve(best, g).J, 3) +
+        " &nbsp;·&nbsp; <i>d</i> = KL = " + num(d, 3) + ": " + rule;
+    },
+
+    "ppo-clip": function (s, p) {
+      var e = s.eps, A = s.sgn, sc = scale([-0.12, 2.12], [-2.25, 2.25]), X = sc.x, Y = sc.y, i, raw = [], clip = [];
+      for (i = 0; i <= 200; i++) {
+        var r = 2 * i / 200, cr = Math.min(Math.max(r, 1 - e), 1 + e);
+        raw.push([X(r), Y(r * A)]); clip.push([X(r), Y(Math.min(r * A, cr * A))]);
+      }
+      var flatLo = A > 0 ? 1 + e : 0, flatHi = A > 0 ? 2 : 1 - e, gz = p.g(null);
+      p.rect(gz, X(flatLo), Y(2.2), X(flatHi) - X(flatLo), Y(-2.2) - Y(2.2), "fill c-muted");
+      p.axes(sc, { xticks: [1, 2], xlabel: "r = \\pi_\\theta / \\pi_{\\theta_k}" });
+      var gc = p.g(null);
+      p.poly(gc, raw, "curve thin c-muted dash");
+      p.poly(gc, clip, "curve c-accent");
+      [1 - e, 1 + e].forEach(function (v) { p.line(gc, X(v), Y(0) - 5, X(v), Y(0) + 5, "tick strong"); });
+      p.label("pc-l", "1 - \\varepsilon", X(1 - e), Y(0) + (A > 0 ? 8 : -8), A > 0 ? "s" : "n");
+      p.label("pc-h", "1 + \\varepsilon", X(1 + e), Y(0) + (A > 0 ? 8 : -8), A > 0 ? "s" : "n");
+      p.label("pc-f", "\\min\\{r\\hat A,\\ \\text{clip}(r)\\hat A\\}", X(0.08), Y(2.1), "se");
+      return (A > 0 ? "good action: raising its probability helps only until r = 1 + ε; beyond that the objective is flat (gray), so the gradient is 0" :
+        "bad action: lowering its probability helps only until r = 1 − ε; below that the objective is flat (gray), so the gradient is 0") +
+        " &nbsp;·&nbsp; the dashed line is the unclipped r·Â";
+    }
+  };
+
   window.Figures = { specs: specs, mount: mount };
 })();

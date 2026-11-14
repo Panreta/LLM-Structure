@@ -40,3 +40,9 @@
   labels: [Probability, Geometry]
   figure: high-dimension
   description: "Why random vectors have length about 1 and are nearly orthogonal, how that gives the Johnson–Lindenstrauss lemma, and why a high-dimensional ball keeps its mass on the shell."
+
+- id: grpo
+  title: GRPO
+  labels: [Large Language Model, Optimization]
+  figure: grpo
+  description: "The objective behind DeepSeek-R1, built step by step: Markov decision processes, the trust-region problem, TRPO, PPO, and what GRPO changes."
