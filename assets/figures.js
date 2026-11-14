@@ -131,8 +131,8 @@
       self.line(g, ax - 6, sc.y(v), ax, sc.y(v), "tick");
       self.text(g, ax - 10, sc.y(v) + 5, String(v), "end");
     });
-    if (o.xlabel) this.label("xlabel", o.xlabel, W - 6, ay + 6, "sw");
-    if (o.ylabel) this.label("ylabel", o.ylabel, ax + 8, 4, "se");
+    if (o.xlabel) this.label("xlabel " + o.xlabel, o.xlabel, W - 6, ay + 6, "sw");
+    if (o.ylabel) this.label("ylabel " + o.ylabel, o.ylabel, ax + 8, 4, "se");
   };
 
   // ---------- mount: one figure with its controls ----------
@@ -1809,6 +1809,208 @@
         p.circle(g, X(s.src[0]), Y(s.src[1]), 18, "hitc");
       }
       return sol.nodes.length + " unknowns on " + sol.tris.length + " triangles &nbsp;·&nbsp; conjugate gradient converged in " + sol.it + " iterations &nbsp;·&nbsp; edges held at 0, hottest point " + num(top, 3);
+    }
+  };
+
+  // Bregman divergence, negative entropy, KL, cross-entropy, Gibbs' inequality.
+  var BR = {};
+  BR.phis = {
+    sq: { f: function (x) { return x * x; }, d: function (x) { return 2 * x; }, dom: [-1.6, 1.6], tex: "\\varphi(x) = x^2", name: "x²", B: "(<i>p</i> − <i>q</i>)², the squared distance" },
+    xlogx: { f: function (x) { return x * Math.log(x); }, d: function (x) { return Math.log(x) + 1; }, dom: [0.03, 2.4], tex: "\\varphi(x) = x \\log x", name: "x log x", B: "<i>p</i> log(<i>p</i>/<i>q</i>) − <i>p</i> + <i>q</i>, one term of a KL divergence" },
+    exp: { f: Math.exp, d: Math.exp, dom: [-2.2, 1.3], tex: "\\varphi(x) = e^x", name: "eˣ", B: "e<sup><i>p</i></sup> − e<sup><i>q</i></sup>(1 + <i>p</i> − <i>q</i>)" }
+  };
+  // φ on the 2-outcome simplex: p = (t, 1 − t).
+  BR.ne = function (t) { return t * Math.log(t) + (1 - t) * Math.log(1 - t); };
+  BR.dne = function (t) { return Math.log(t / (1 - t)); };
+  BR.kl = function (p, q) { return p * Math.log(p / q) + (1 - p) * Math.log((1 - p) / (1 - q)); };
+  BR.ce = function (p, q) { return -p * Math.log(q) - (1 - p) * Math.log(1 - q); };
+  BR.desc = function (t) { return "<span class=\"fig-desc\">" + t + "</span>"; };
+  function prob(key, label, value) { return { key: key, label: label, min: 0.02, max: 0.98, step: 0.01, value: value, show: function (v) { return key.charAt(0) + " = " + num(v); } }; }
+  BR.controls = {
+    bregman: [{ key: "phi", label: "Convex φ", type: "choice", value: "xlogx", options: [["sq", "x²"], ["xlogx", "x log x"], ["exp", "eˣ"]] }],
+    "negative-entropy": [prob("t1", "Distribution", 0.25)],
+    "kl-divergence": [prob("pk", "p = (p, 1 − p)", 0.25), prob("qk", "q = (q, 1 − q)", 0.6)],
+    "cross-entropy": [prob("pc", "True p", 0.3), prob("qc", "Model q", 0.7)],
+    nonnegativity: [prob("qn", "Tangent at q", 0.35)],
+    "optimal-coding": [{ key: "mix", label: "Code built for", min: 0, max: 1, step: 0.01, value: 0.3, show: function (v) { return v === 1 ? "q = p" : v === 0 ? "q = r" : num(1 - v) + "·r + " + num(v) + "·p"; } }]
+  };
+
+  specs["bregman-kl"] = {
+    alt: "Figures for Bregman divergence: a convex function with a tangent line and the gap between them, negative entropy on two outcomes, KL divergence as a tangent gap, cross-entropy as entropy plus KL, tangents under a convex curve, and code lengths for a four-symbol source.",
+    story: true,
+    controls: function (s) { return BR.controls[s.ch] || []; },
+    init: function (s) {
+      s.ch = "bregman";
+      for (var c in BR.controls) BR.controls[c].forEach(function (o) { s[o.key] = o.value; });
+      s.bp = 1.9; s.bq = 0.6;
+      this.box = BOX;
+    },
+    select: function (s, slug) {
+      if (!slug || slug === s.ch || !BR.controls[slug]) return false;
+      s.ch = slug;
+      return true;
+    },
+    render: function (s, p) { return this[s.ch](s, p); },
+    drag: function (s, pt, phase) {
+      var sc = this.sc;
+      if (!sc || s.ch !== "bregman") return false;
+      var F = BR.phis[s.phi];
+      if (phase === "start") {
+        s.drag = null;
+        var best = 30;
+        [["bp", s.bp], ["bq", s.bq]].forEach(function (t) {
+          var d = Math.abs(pt.x - sc.x(t[1])) + Math.min(Math.abs(pt.y - sc.y(F.f(t[1]))), Math.abs(pt.y - sc.y(sc.yd[0])));
+          if (d < best) { best = d; s.drag = t[0]; }
+        });
+        return !!s.drag;
+      }
+      s[s.drag] = clamp(sc.ix(pt.x), F.dom[0] + 0.05, F.dom[1] - 0.05);
+    },
+
+    // The definition: the gap at p between φ and its tangent at q.
+    bregman: function (s, p) {
+      var F = BR.phis[s.phi], a = F.dom[0], b = F.dom[1], i, ys = [];
+      if (s.phiSeen !== s.phi) { s.phiSeen = s.phi; s.bq = a + 0.3 * (b - a); s.bp = a + 0.82 * (b - a); }
+      var P = s.bp, Q = s.bq;
+      for (i = 0; i <= 200; i++) ys.push(F.f(a + (b - a) * i / 200));
+      var lo = Math.min.apply(null, ys), hi = Math.max.apply(null, ys), pad = (hi - lo) * 0.15;
+      var sc = this.sc = scale([a - (b - a) * 0.06, b + (b - a) * 0.04], [lo - pad * 2, hi + pad]), X = sc.x, Y = sc.y;
+      var tan = function (x) { return F.f(Q) + F.d(Q) * (x - Q); };
+      p.axes(sc, { xlabel: "x" });
+      var g = p.g(null, true), cv = [];
+      for (i = 0; i <= 200; i++) { var x = a + (b - a) * i / 200; cv.push([X(x), Y(F.f(x))]); }
+      p.poly(g, cv, "curve c-accent");
+      p.line(g, X(a), Y(tan(a)), X(b), Y(tan(b)), "curve thin c-muted dash");
+      p.line(g, X(P), Y(tan(P)), X(P), Y(F.f(P)), "curve c-warm");
+      var gd = p.g(null);
+      p.line(gd, X(P), Y(sc.yd[0]), X(P), Y(Math.min(F.f(P), tan(P))), "curve thin c-muted dash");
+      p.line(gd, X(Q), Y(sc.yd[0]), X(Q), Y(F.f(Q)), "curve thin c-muted dash");
+      p.circle(gd, X(Q), Y(F.f(Q)), 5.5, "dot");
+      p.circle(gd, X(P), Y(F.f(P)), 5.5, "dot c-warm");
+      p.circle(gd, X(P), Y(tan(P)), 4, "hollow c-warm");
+      [P, Q].forEach(function (v) { p.circle(gd, X(v), Y(F.f(v)), 16, "hitc"); });
+      p.label("br-q", "q", X(Q), Y(sc.yd[0]) - 4, "n");
+      p.label("br-p", "p", X(P), Y(sc.yd[0]) - 4, "n");
+      p.label("br-f-" + s.phi, "y = " + F.tex, X(a + 0.04 * (b - a)), Y(F.f(a + 0.04 * (b - a))) - 6, s.phi === "exp" ? "se" : "ne");
+      var tx = Q < (a + b) / 2 ? a + 0.05 * (b - a) : b - 0.05 * (b - a);
+      p.label("br-t", "\\text{tangent: } y = \\varphi(q) + \\varphi'(q)(x - q)", X(tx), Y(tan(tx)) + 6, tx < Q ? "se" : "sw");
+      p.label("br-B", "B_\\varphi(p, q)", X(P) + (P > Q ? 6 : -6), (Y(tan(P)) + Y(F.f(P))) / 2, P > Q ? "e" : "w");
+      var B = F.f(P) - tan(P);
+      return BR.desc("The blue curve is the convex function φ(<i>x</i>) = " + F.name + ", the dashed line its tangent at <i>q</i>. The brown segment at <i>p</i>, from the tangent up to the curve, is the Bregman divergence.") +
+        "<i>B</i><sub>φ</sub>(<i>p</i>, <i>q</i>) = φ(" + num(P) + ") − [φ(" + num(Q) + ") + φ′(" + num(Q) + ")(" + num(P) + " − " + num(Q) + ")] = " + num(B, 4) +
+        " &nbsp;·&nbsp; for this φ it equals " + F.B + ". Drag <i>p</i> and <i>q</i>.";
+    },
+
+    // φ(p) = Σ p_i log p_i on two outcomes, and its negative, the entropy.
+    "negative-entropy": function (s, p) {
+      var t = s.t1, sc = scale([-0.08, 1.12], [-0.85, 0.85]), X = sc.x, Y = sc.y, i, a = [], h = [];
+      for (i = 1; i < 200; i++) { var x = i / 200; a.push([X(x), Y(BR.ne(x))]); h.push([X(x), Y(-BR.ne(x))]); }
+      p.axes(sc, { xticks: [0.5, 1], yticks: [-0.5, 0.5], xlabel: "p_1" });
+      var g = p.g(null);
+      p.poly(g, h, "curve thin c-muted dash");
+      p.poly(g, a, "curve c-accent");
+      p.line(g, X(0.5), Y(-Math.log(2)), X(0.5), Y(Math.log(2)), "curve thin c-muted dash");
+      p.circle(g, X(t), Y(BR.ne(t)), 5.5, "dot c-accent");
+      p.label("ne-f", "\\varphi(p) = p_1 \\log p_1 + p_2 \\log p_2", X(0.5), Y(-Math.log(2)) + 8, "s");
+      p.label("ne-h", "H(p) = -\\varphi(p)", X(0.5), Y(Math.log(2)) - 6, "n");
+      p.label("ne-m", "-\\log 2", X(0.5) + 6, Y(-Math.log(2)), "e");
+      var g1 = Math.log(t) + 1, g2 = Math.log(1 - t) + 1;
+      return BR.desc("For two outcomes, <i>p</i> = (<i>p</i><sub>1</sub>, 1 − <i>p</i><sub>1</sub>). The blue curve is the negative entropy φ, which is convex and ≤ 0; the dashed curve is the entropy <i>H</i> = −φ. Both are extreme at the uniform distribution.") +
+        "<i>p</i> = (" + num(t) + ", " + num(1 - t) + "): φ(<i>p</i>) = " + num(BR.ne(t), 4) + ", <i>H</i>(<i>p</i>) = " + num(-BR.ne(t), 4) + " nats &nbsp;·&nbsp; ∇φ(<i>p</i>) = (log <i>p<sub>i</sub></i> + 1) = (" + num(g1, 3) + ", " + num(g2, 3) + ")";
+    },
+
+    // KL(p ‖ q) is the Bregman gap of the negative entropy.
+    "kl-divergence": function (s, p) {
+      var P = s.pk, Q = s.qk, sc = scale([-0.08, 1.12], [-0.95, 0.75]), X = sc.x, Y = sc.y, i, a = [];
+      var tan = function (x) { return BR.ne(Q) + BR.dne(Q) * (x - Q); };
+      for (i = 1; i < 200; i++) { var x = i / 200; a.push([X(x), Y(BR.ne(x))]); }
+      p.axes(sc, { xticks: [0.5, 1], xlabel: "p_1" });
+      var g = p.g(null, true);
+      p.poly(g, a, "curve c-accent");
+      p.line(g, X(0), Y(tan(0)), X(1), Y(tan(1)), "curve thin c-muted dash");
+      p.line(g, X(P), Y(tan(P)), X(P), Y(BR.ne(P)), "curve c-warm");
+      var gd = p.g(null);
+      p.circle(gd, X(Q), Y(BR.ne(Q)), 5.5, "dot");
+      p.circle(gd, X(P), Y(BR.ne(P)), 5.5, "dot c-warm");
+      p.label("kl-q", "q", X(Q), Y(BR.ne(Q)) + 8, "s");
+      p.label("kl-p", "p", X(P), Y(BR.ne(P)) + 8, "s");
+      p.label("kl-f", "y = \\textstyle\\sum_i p_i \\log p_i", X(0.04), Y(BR.ne(0.04)) - 4, "ne");
+      p.label("kl-t", "\\text{tangent at } q", X(Q < 0.5 ? 0.97 : 0.03), Y(tan(Q < 0.5 ? 0.97 : 0.03)) + 6, Q < 0.5 ? "sw" : "se");
+      p.label("kl-B", "\\text{KL}(p \\,\\Vert\\, q)", X(P) + (P > Q ? 6 : -6), (Y(tan(P)) + Y(BR.ne(P))) / 2, P > Q ? "e" : "w");
+      return BR.desc("The blue curve is the negative entropy of (<i>p</i><sub>1</sub>, 1 − <i>p</i><sub>1</sub>), the dashed line its tangent at <i>q</i>. The brown gap at <i>p</i> is the Bregman divergence, and it equals the KL divergence.") +
+        "gap = " + num(BR.ne(P) - tan(P), 4) + " &nbsp;·&nbsp; Σ <i>p<sub>i</sub></i> log(<i>p<sub>i</sub></i>/<i>q<sub>i</sub></i>) = " + num(BR.kl(P, Q), 4) +
+        " &nbsp;·&nbsp; swapped, KL(<i>q</i> ‖ <i>p</i>) = " + num(BR.kl(Q, P), 4) + ": not symmetric";
+    },
+
+    // Cross-entropy = entropy + KL; minimized over q at q = p.
+    "cross-entropy": function (s, p) {
+      var P = s.pc, Q = s.qc, sc = scale([-0.08, 1.12], [0, 3.1]), X = sc.x, Y = sc.y, i, c = [], H = -BR.ne(P);
+      for (i = 2; i < 199; i++) { var q = i / 200; c.push([X(q), Y(Math.min(BR.ce(P, q), 3.05))]); }
+      p.axes(sc, { xticks: [0.5, 1], yticks: [1, 2, 3], xlabel: "q_1" });
+      var g = p.g(null, true), band = [];
+      for (i = 2; i < 199; i++) { var q2 = i / 200; band.push([X(q2), Y(Math.min(BR.ce(P, q2), 3.05))]); }
+      p.poly(g, [[X(0.01), Y(H)]].concat(band, [[X(0.995), Y(H)]]), "fill c-warm", true);
+      p.line(g, X(0), Y(H), X(1), Y(H), "curve thin c-muted dash");
+      p.poly(g, c, "curve c-accent");
+      p.line(g, X(Q), Y(H), X(Q), Y(BR.ce(P, Q)), "curve c-warm");
+      p.line(g, X(P), Y(0), X(P), Y(H), "curve thin c-muted dash");
+      p.circle(g, X(Q), Y(BR.ce(P, Q)), 5.5, "dot c-accent");
+      p.circle(g, X(P), Y(H), 4.5, "dot");
+      p.label("ce-f", "\\text{CE}(p, q) = -\\textstyle\\sum_i p_i \\log q_i", X(Q < 0.5 ? 0.97 : 0.03), Y(Math.min(BR.ce(P, Q < 0.5 ? 0.97 : 0.03), 2.9)), Q < 0.5 ? "nw" : "ne");
+      p.label("ce-h", "H(p) = -\\textstyle\\sum_i p_i \\log p_i", X(0.98), Y(H) + 6, "sw");
+      p.label("ce-k", "\\text{KL}(p \\,\\Vert\\, q)", X(Q) + 6, (Y(H) + Y(BR.ce(P, Q))) / 2, "e");
+      p.label("ce-p", "q = p", X(P), Y(0) + 4, "s");
+      return BR.desc("For a fixed true distribution <i>p</i>, the blue curve is the cross-entropy as the model <i>q</i> varies. The dashed line is the entropy <i>H</i>(<i>p</i>), a constant; the brown gap between them is KL(<i>p</i> ‖ <i>q</i>).") +
+        "CE = " + num(BR.ce(P, Q), 4) + " = <i>H</i>(<i>p</i>) " + num(H, 4) + " + KL " + num(BR.kl(P, Q), 4) + " &nbsp;·&nbsp; minimizing CE over <i>q</i> is minimizing KL: the minimum is at <i>q</i> = <i>p</i>";
+    },
+
+    // Convexity: every tangent lies below the curve, so B ≥ 0.
+    nonnegativity: function (s, p) {
+      var Q = s.qn, sc = scale([-0.08, 1.12], [-0.95, 0.6]), X = sc.x, Y = sc.y, i, a = [], epi = [];
+      for (i = 1; i < 200; i++) { var x = i / 200; a.push([X(x), Y(BR.ne(x))]); }
+      p.axes(sc, { xticks: [0.5, 1], xlabel: "p_1" });
+      var g = p.g(null, true);
+      p.poly(g, [[X(0.005), Y(0.6)]].concat(a, [[X(0.995), Y(0.6)]]), "fill c-accent", true);
+      [0.1, 0.2, 0.5, 0.65, 0.8, 0.9].forEach(function (q) {
+        p.line(g, X(0), Y(BR.ne(q) - BR.dne(q) * q), X(1), Y(BR.ne(q) + BR.dne(q) * (1 - q)), "curve thin c-muted");
+      });
+      var tan = function (x) { return BR.ne(Q) + BR.dne(Q) * (x - Q); }, d2 = 1 / (Q * (1 - Q)), quad = [];
+      for (i = 0; i <= 200; i++) { var z = i / 200; quad.push([X(z), Y(tan(z) + 0.5 * d2 * (z - Q) * (z - Q))]); }
+      p.poly(g, quad, "curve thin c-warm dash");
+      p.line(g, X(0), Y(tan(0)), X(1), Y(tan(1)), "curve c-warm");
+      p.poly(g, a, "curve c-accent");
+      p.circle(g, X(Q), Y(BR.ne(Q)), 5.5, "dot");
+      p.label("nn-f", "y = \\varphi(p)", X(0.5), Y(BR.ne(0.5)) + 8, "s");
+      p.label("nn-e", "\\text{epigraph } \\{ y \\ge \\varphi \\}", X(0.5), Y(0.56), "s");
+      var gl = p.g(null);
+      p.line(gl, X(0.04), Y(0.3), X(0.12), Y(0.3), "curve c-warm");
+      p.line(gl, X(0.04), Y(0.18), X(0.12), Y(0.18), "curve thin c-warm dash");
+      p.label("nn-t", "\\text{tangent: } \\varphi(q) + \\varphi'(q)(p - q)", X(0.13), Y(0.3), "e");
+      p.label("nn-q", "\\text{Taylor: } \\ldots + \\tfrac12 \\varphi''(q)(p - q)^2", X(0.13), Y(0.18), "e");
+      return BR.desc("The blue curve is the convex φ with its epigraph shaded. Every tangent (gray lines, brown for the one at <i>q</i>) stays below the curve, so the gap <i>B</i><sub>φ</sub>(<i>p</i>, <i>q</i>) is never negative. The dashed brown curve is the second-order Taylor expansion at <i>q</i>.") +
+        "φ″(<i>q</i>) = 1/(<i>q</i>(1 − <i>q</i>)) = " + num(d2, 2) + " &gt; 0 &nbsp;·&nbsp; so near <i>q</i>, <i>B</i><sub>φ</sub>(<i>p</i>, <i>q</i>) ≈ ½φ″(<i>q</i>)(<i>p</i> − <i>q</i>)² ≥ 0, with equality only at <i>p</i> = <i>q</i>";
+    },
+
+    // Code lengths ℓ_i = −log₂ q_i for a four-symbol source with distribution p.
+    "optimal-coding": function (s, p) {
+      var P = [0.5, 0.25, 0.125, 0.125], R = [0.1, 0.15, 0.3, 0.45], t = s.mix, i;
+      var Qd = P.map(function (v, k) { return (1 - t) * R[k] + t * v; });
+      var sc = scale([-0.3, 4.3], [0, 0.72]), X = sc.x, Y = sc.y, g = p.g(null), H = 0, CE = 0;
+      p.axes(sc, { yticks: [0.25, 0.5], ylabel: "\\text{probability}" });
+      for (i = 0; i < 4; i++) {
+        H -= P[i] * Math.log2(P[i]); CE -= P[i] * Math.log2(Qd[i]);
+        var c = i + 0.5;
+        p.rect(g, X(c - 0.36), Y(P[i]), 0.34 * sc.sx, P[i] * sc.sy, "fill c-accent");
+        p.rect(g, X(c - 0.36), Y(P[i]), 0.34 * sc.sx, P[i] * sc.sy, "curve thin c-accent");
+        p.rect(g, X(c + 0.02), Y(Qd[i]), 0.34 * sc.sx, Qd[i] * sc.sy, "fill c-warm");
+        p.rect(g, X(c + 0.02), Y(Qd[i]), 0.34 * sc.sx, Qd[i] * sc.sy, "curve thin c-warm");
+        p.text(g, X(c), Y(0) + 20, "ABCD".charAt(i));
+        p.text(g, X(c + 0.19), Y(Qd[i]) - 8, num(-Math.log2(Qd[i]), 2) + " bits");
+      }
+      p.label("oc-p", "\\text{blue: } p_i \\ (\\text{true})", X(2.6), Y(0.68), "se");
+      p.label("oc-q", "\\text{brown: } q_i, \\ \\ell_i = -\\log_2 q_i", X(2.6), Y(0.6), "se");
+      return BR.desc("A source emits A–D with probabilities <i>p</i> (blue). A code built for a guess <i>q</i> (brown) gives symbol <i>i</i> a codeword of about −log₂ <i>q<sub>i</sub></i> bits, written above each brown bar.") +
+        "expected length Σ <i>p<sub>i</sub></i>(−log₂ <i>q<sub>i</sub></i>) = " + num(CE, 3) + " bits ≥ entropy <i>H</i>(<i>p</i>) = " + num(H, 3) + " bits &nbsp;·&nbsp; waste = KL(<i>p</i> ‖ <i>q</i>) = " + num(CE - H, 3) + " bits, zero only when <i>q</i> = <i>p</i>";
     }
   };
 

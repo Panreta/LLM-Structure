@@ -100,6 +100,7 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:"STIX Two Tex
 .fig-controls:empty{display:none}
 .fig-readout{margin-top:10px;font-variant-numeric:tabular-nums;line-height:1.5}
 .fig-readout .muted{color:var(--muted)}
+.fig-readout .fig-desc{display:block;margin-bottom:6px;font-variant-numeric:normal}
 .story-nav{display:flex;justify-content:space-between;gap:10px;margin-top:20px;padding-top:14px;border-top:1px solid color-mix(in srgb,var(--ink) 14%,transparent)}
 .story-step{min-height:40px;padding:6px 14px;border:1.5px solid var(--rule);border-radius:999px;background:transparent;color:var(--ink);font:600 .9rem system-ui,-apple-system,"Segoe UI",sans-serif;cursor:pointer}
 .story-step.next{margin-left:auto;background:var(--ink);color:var(--paper);border-color:var(--ink)}

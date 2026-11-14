@@ -58,3 +58,9 @@
   labels: [Numerical Analysis, Linear Algebra]
   figure: fem
   description: "From the weak form and the Lax–Milgram theorem to hat functions, assembly and convergence, ending with a live heat simulation on an L-shaped plate."
+
+- id: bregman-kl
+  title: Bregman divergence and KL
+  labels: [Probability, Optimization]
+  figure: bregman-kl
+  description: "The gap between a convex function and its tangent: with negative entropy it becomes the KL divergence, then cross-entropy and the limit of optimal coding."
