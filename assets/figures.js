@@ -145,7 +145,15 @@
   function mount(host, name, opts) {
     var spec = specs[name];
     opts = opts || {};
-    var state = {}, current = null, drawn = false, ctlBox = null, ctlSig = null;
+    var state = {}, current = null, drawn = false, ctlBox = null, ctlSig = null, anim = false, lastT = 0;
+    function loop(ts) {
+      if (!spec.animating(state) || !stage.isConnected || !stage.offsetParent) { anim = false; return; }
+      var dt = lastT ? Math.min((ts - lastT) / 1000, 0.05) : 0;
+      lastT = ts;
+      spec.step(state, dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
     // controls is a list, or a function of the state (rebuilt when it changes)
     function ctls() { return typeof spec.controls === "function" ? spec.controls(state) : spec.controls || []; }
     ctls().forEach(function (c) { state[c.key] = c.value; });
@@ -189,6 +197,9 @@
       if (ctlBox) controls();
       if (drawn && p.fresh.length && opts.typeset) opts.typeset(labels);
       drawn = true;
+      // Animated figures: spec.animating(state) says whether to keep going,
+      // spec.step(state, dt) advances time. Stops when the figure is hidden.
+      if (!opts.thumb && spec.animating && spec.animating(state) && !anim) { anim = true; lastT = 0; requestAnimationFrame(loop); }
       mark();
     }
 
@@ -2847,6 +2858,292 @@
       p.label("rn-d", "S_T = S_0 e^{(r - \\sigma^2/2)T + \\sigma W^{\\mathbb{Q}}_T}", X(lo), Y(top * 1.27), "se");
       p.label("rn-p", "(S_T - K)^+ \\ (\\text{not to scale})", X(hi - 10), Y(top * 1.1), "w");
       return "Monte Carlo <i>e</i><sup>−<i>rT</i></sup> · mean payoff = " + num(disc * mean, 3) + " ± " + num(1.96 * disc * se, 3) + " (95%) &nbsp;·&nbsp; Black–Scholes formula " + num(exact, 3) + " &nbsp;·&nbsp; the real drift μ appears nowhere";
+    }
+  };
+
+  // Calculus of variations: the Euler–Lagrange equation and where it leads.
+  var EL = { g: 9.81 };
+  EL.eta = {
+    s1: function (t) { return Math.sin(Math.PI * t); },
+    s2: function (t) { return Math.sin(2 * Math.PI * t); },
+    bump: function (t) { var u = (t - 0.35) / 0.25; return Math.abs(u) < 1 ? Math.pow(1 - u * u, 2) : 0; }
+  };
+  // Integrate a function of t on [0, T] (Simpson, n even).
+  EL.simpson = function (f, a, b, n) {
+    n = n || 400; var h = (b - a) / n, s = f(a) + f(b);
+    for (var i = 1; i < n; i++) s += (i % 2 ? 4 : 2) * f(a + i * h);
+    return s * h / 3;
+  };
+  EL.d = function (f, t) { var h = 1e-5; return (f(t + h) - f(t - h)) / (2 * h); };
+  // J(x) = ∫₀¹ ½ẋ² + ½x² dt; minimizer with x(0)=0, x(1)=1 is sinh t / sinh 1.
+  EL.J = function (x) { return EL.simpson(function (t) { var v = EL.d(x, t), y = x(t); return 0.5 * v * v + 0.5 * y * y; }, 0, 1); };
+  EL.star = function (t) { return Math.sinh(t) / Math.sinh(1); };
+  // A small framed inset for a graph y(α).
+  EL.inset = function (p, box, xr, yr, f, cur, tex, key) {
+    var g = p.g(null), X = function (v) { return box[0] + (v - xr[0]) / (xr[1] - xr[0]) * box[2]; }, Y = function (v) { return box[1] + box[3] - (v - yr[0]) / (yr[1] - yr[0]) * box[3]; };
+    p.rect(g, box[0], box[1], box[2], box[3], "inset");
+    p.line(g, X(0), box[1], X(0), box[1] + box[3], "tick");
+    var pts = []; for (var i = 0; i <= 80; i++) { var a = xr[0] + (xr[1] - xr[0]) * i / 80; pts.push([X(a), Math.min(Math.max(Y(f(a)), box[1]), box[1] + box[3])]); }
+    p.poly(g, pts, "curve thin c-accent");
+    p.circle(g, X(cur), Y(f(cur)), 4.5, "dot c-warm");
+    p.label(key, tex, box[0] + 6, box[1] + 4, "se");
+    p.text(g, X(0), box[1] + box[3] + 15, "0");
+    p.text(g, box[0] + box[2] - 4, box[1] + box[3] + 15, "α", "end");
+  };
+  // Brachistochrone: a table of (x, y, time) along a curve from A = (0, 0), y downward.
+  EL.race = function (pts) {
+    var T = [0];
+    for (var i = 1; i < pts.length; i++) {
+      var ds = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]), ym = (pts[i][1] + pts[i - 1][1]) / 2;
+      T.push(T[i - 1] + ds / Math.sqrt(2 * EL.g * Math.max(ym, 1e-9)));
+    }
+    return T;
+  };
+  EL.at = function (pts, T, t) {
+    if (t >= T[T.length - 1]) return pts[pts.length - 1];
+    var lo = 0, hi = T.length - 1;
+    while (hi - lo > 1) { var m = (lo + hi) >> 1; if (T[m] <= t) lo = m; else hi = m; }
+    var f = (t - T[lo]) / (T[hi] - T[lo]);
+    return [pts[lo][0] + f * (pts[hi][0] - pts[lo][0]), pts[lo][1] + f * (pts[hi][1] - pts[lo][1])];
+  };
+  EL.cycloid = function (b, h) {
+    var lo = 1e-6, hi = 2 * Math.PI - 1e-6, k = b / h;
+    for (var i = 0; i < 80; i++) { var m = (lo + hi) / 2; if ((m - Math.sin(m)) / (1 - Math.cos(m)) < k) lo = m; else hi = m; }
+    var th = (lo + hi) / 2;
+    return { th: th, R: h / (1 - Math.cos(th)) };
+  };
+  EL.curves = function (b, h) {
+    var N = 700, line = [], cyc = [], pow = [], c = EL.cycloid(b, h), i;
+    for (i = 0; i <= N; i++) {
+      var u = Math.pow(i / N, 2);
+      line.push([b * u, h * u]);
+      var th = c.th * u; cyc.push([c.R * (th - Math.sin(th)), c.R * (1 - Math.cos(th))]);
+      pow.push([b * u, h * Math.sqrt(u)]);
+    }
+    return { line: line, cyc: cyc, pow: pow, c: c };
+  };
+  // Pendulum H = p²/2 − cos θ; one RK4 step.
+  EL.rk4 = function (q, p, dt) {
+    var f = function (a, b) { return [b, -Math.sin(a)]; };
+    var k1 = f(q, p), k2 = f(q + dt / 2 * k1[0], p + dt / 2 * k1[1]), k3 = f(q + dt / 2 * k2[0], p + dt / 2 * k2[1]), k4 = f(q + dt * k3[0], p + dt * k3[1]);
+    return [q + dt / 6 * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0]), p + dt / 6 * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1])];
+  };
+
+  var PLAY = { key: "play", label: "Motion", type: "choice", value: "on", options: [["on", "Playing"], ["off", "Paused"]] };
+  EL.controls = {
+    variation: [
+      { key: "va", label: "Perturbation", min: -0.6, max: 0.6, step: 0.01, value: 0.35, show: function (v) { return "α = " + num(v); } },
+      { key: "veta", label: "Direction η", type: "choice", value: "s1", options: [["s1", "sin πt"], ["s2", "sin 2πt"], ["bump", "bump"]] }
+    ],
+    "euler-lagrange": [
+      { key: "epath", label: "Path", type: "choice", value: "line", options: [["line", "x = t"], ["star", "x = sinh t / sinh 1"]] },
+      { key: "ec", label: "Bump center", min: 0.15, max: 0.85, step: 0.01, value: 0.6, show: function (v) { return "c = " + num(v); } }
+    ],
+    "shortest-path": [],
+    brachistochrone: [PLAY],
+    "hamilton-principle": [
+      { key: "hT", label: "Duration", type: "choice", value: "short", options: [["short", "T = 2"], ["long", "T = 4.5"]] },
+      { key: "ha", label: "Perturbation", min: -0.8, max: 0.8, step: 0.01, value: 0.4, show: function (v) { return "α = " + num(v); } }
+    ],
+    "hamilton-equations": [
+      { key: "hE", label: "Energy", min: -0.9, max: 1.8, step: 0.05, value: 0.4, show: function (v) { return "H = " + num(v); } }, PLAY
+    ],
+    "optimal-control": [{ key: "lr", label: "Control cost", min: -2, max: 2, step: 0.1, value: 0, show: function (v) { return "r = " + (Math.pow(10, v) < 1 ? num(Math.pow(10, v), 2) : num(Math.pow(10, v), 1)); } }]
+  };
+  EL.wide = { "shortest-path": 1, brachistochrone: 1, "hamilton-equations": 1 };
+
+  specs["euler-lagrange"] = {
+    alt: "Figures for the Euler–Lagrange equation: a perturbed path and the functional as a function of the perturbation size, the first variation against a bump test function, a draggable curve compared with the straight line, beads racing down a line, a steep curve and a cycloid, the action of an oscillator, a pendulum's phase portrait, and an optimally controlled double integrator.",
+    story: true,
+    controls: function (s) { return EL.controls[s.ch] || []; },
+    init: function (s, thumb) {
+      s.ch = thumb ? "brachistochrone" : "variation";
+      for (var c in EL.controls) EL.controls[c].forEach(function (o) { s[o.key] = o.value; });
+      s.P = [0.25, 0.85]; s.B = [2, 1]; s.rt = thumb ? 0.55 : 0; s.q = [0, Math.sqrt(2 * (0.4 + 1))]; s.qE = 0.4;
+      this.box = thumb ? { l: 12, r: 12, t: 12, b: 12 } : BOX;
+    },
+    select: function (s, slug) {
+      if (!slug || slug === s.ch || !EL.controls[slug]) return false;
+      s.ch = slug;
+      this.box = EL.wide[slug] ? { l: 12, r: 12, t: 12, b: 12 } : BOX;
+      return true;
+    },
+    render: function (s, p) { return this[s.ch](s, p); },
+    animating: function (s) { return (s.ch === "brachistochrone" || s.ch === "hamilton-equations") && s.play === "on"; },
+    step: function (s, dt) {
+      if (s.ch === "brachistochrone") { s.rt += dt * 0.6; return; }
+      var n = 4; for (var i = 0; i < n; i++) s.q = EL.rk4(s.q[0], s.q[1], dt * 1.6 / n);
+      if (s.q[0] > Math.PI) s.q[0] -= 2 * Math.PI; if (s.q[0] < -Math.PI) s.q[0] += 2 * Math.PI;
+    },
+    click: function (s) { if (s.ch === "brachistochrone") { s.rt = 0; return true; } return false; },
+    drag: function (s, pt, phase) {
+      var sc = this.sc;
+      if (!sc || (s.ch !== "shortest-path" && s.ch !== "brachistochrone")) return false;
+      var v = s.ch === "shortest-path" ? s.P : [s.B[0], -s.B[1]];
+      if (phase === "start") return Math.abs(pt.x - sc.x(v[0])) + Math.abs(pt.y - sc.y(v[1])) < 30;
+      if (s.ch === "shortest-path") s.P = [clamp(sc.ix(pt.x), -0.3, 1.3), clamp(sc.iy(pt.y), -0.4, 1.5)];
+      else { s.B = [clamp(sc.ix(pt.x), 0.3, 3.4), clamp(-sc.iy(pt.y), 0.3, 1.9)]; s.rt = 0; }
+    },
+    describe: byBlock({
+      variation: "Black: the minimizer <i>x</i>*(<i>t</i>) of <i>J</i>(<i>x</i>) = ∫₀¹ ½<i>ẋ</i>² + ½<i>x</i>² d<i>t</i> with <i>x</i>(0) = 0, <i>x</i>(1) = 1. Brown: the perturbed path <i>x</i>* + α<i>η</i>, with η(0) = η(1) = 0. Inset: <i>J</i>(<i>x</i>* + α<i>η</i>) against α, flat at α = 0.",
+      "euler-lagrange": "Blue: the Euler–Lagrange expression δ<i>J</i>(<i>t</i>) = ∂<i>L</i>/∂<i>x</i> − d/d<i>t</i> ∂<i>L</i>/∂<i>ẋ</i> along the chosen path. Dashed: a bump test function η. Brown: their product, whose integral is the first variation in the direction η.",
+      "shortest-path": "Black dashed: the straight segment from <i>A</i> to <i>B</i>. Blue: a smooth curve through the draggable control point, with its arc length <i>J</i> = ∫√(1 + <i>y</i>′²) d<i>x</i> in the readout. Every curve is longer than the segment.",
+      brachistochrone: "Beads released together from <i>A</i> slide without friction to <i>B</i> under gravity (<i>y</i> points down). Gray: the straight line. Brown: a curve that drops steeply first. Blue: the cycloid, the brachistochrone. Drag <i>B</i>; tap to restart.",
+      "hamilton-principle": "Black: the true motion of a harmonic oscillator <i>ẍ</i> = −<i>x</i> from <i>x</i>(0) = 0 to <i>x</i>(<i>T</i>) = 1. Brown: a perturbed path with the same endpoints. Inset: the action <i>S</i> = ∫(½<i>ẋ</i>² − ½<i>x</i>²) d<i>t</i> against α: stationary at α = 0, a minimum for <i>T</i> = 2 but not for <i>T</i> = 4.5.",
+      "hamilton-equations": "The phase plane of a pendulum, angle θ across and momentum <i>p</i> up. Gray: level curves of <i>H</i> = <i>p</i>²/2 − cos θ; dashed brown: the separatrix <i>H</i> = 1. Blue: the state moving by Hamilton's equations, and the pendulum it describes (top right).",
+      "optimal-control": "A cart <i>ẍ</i> = <i>u</i> steered from <i>x</i> = 1 at rest to 0, minimizing ∫ (<i>x</i>² + <i>r u</i>²) d<i>t</i>. Blue: position <i>x</i>; gray: velocity <i>v</i>; brown: the optimal control <i>u</i> = −<i>k</i>₁<i>x</i> − <i>k</i>₂<i>v</i> from the Riccati equation."
+    }),
+
+    variation: function (s, p) {
+      var eta = EL.eta[s.veta], a = s.va, x = function (t) { return EL.star(t) + a * eta(t); };
+      var sc = scale([-0.05, 1.1], [-0.75, 1.55], { l: 44, r: 230, t: 16, b: 32 }), g = p.g(null), i, A = [], B = [], E = [];
+      for (i = 0; i <= 200; i++) { var t = i / 200; A.push([sc.x(t), sc.y(EL.star(t))]); B.push([sc.x(t), sc.y(x(t))]); E.push([sc.x(t), sc.y(0.4 * eta(t) - 0.55)]); }
+      p.line(g, sc.x(0), sc.y(0), sc.x(1.08), sc.y(0), "axisline");
+      p.line(g, sc.x(0), sc.y(-0.75), sc.x(0), sc.y(1.5), "axisline");
+      p.poly(g, E, "curve thin c-muted dash");
+      p.poly(g, B, "curve c-warm");
+      p.poly(g, A, "curve");
+      p.circle(g, sc.x(0), sc.y(0), 4.5, "dot"); p.circle(g, sc.x(1), sc.y(1), 4.5, "dot");
+      p.label("va-x", "x^*(t) = \\frac{\\sinh t}{\\sinh 1}", sc.x(0.55), sc.y(EL.star(0.55)) + 6, "se");
+      p.label("va-p", "x^* + \\alpha\\eta", sc.x(0.3), sc.y(x(0.3)) - 6, "n");
+      p.label("va-e", "\\eta(t) \\ (\\eta(0) = \\eta(1) = 0)", sc.x(0.02), sc.y(-0.67), "e");
+      var J0 = EL.J(EL.star), c2 = EL.simpson(function (t) { var v = EL.d(eta, t), y = eta(t); return 0.5 * v * v + 0.5 * y * y; }, 0, 1);
+      var Jf = function (al) { return J0 + al * al * c2; };
+      EL.inset(p, [395, 40, 185, 150], [-0.65, 0.65], [J0 - 0.1 * c2, J0 + 0.45 * c2], Jf, a, "J(x^* + \\alpha\\eta)", "va-i");
+      return "<i>J</i>(<i>x</i>*) = " + num(J0, 4) + ", <i>J</i>(<i>x</i>* + α<i>η</i>) = " + num(EL.J(x), 4) + " &nbsp;·&nbsp; the term linear in α vanishes: <i>J</i>(<i>x</i>* + α<i>η</i>) = <i>J</i>(<i>x</i>*) + α² · " + num(c2, 3) + " exactly, so d<i>J</i>/dα = 0 at α = 0 for every η";
+    },
+
+    "euler-lagrange": function (s, p) {
+      var opt = s.epath === "star", gfun = function (t) { return opt ? 0 : t; }, c = s.ec, w = 0.13;
+      var eta = function (t) { var u = (t - c) / w; return Math.abs(u) < 1 ? Math.pow(1 - u * u, 2) : 0; };
+      var sc = scale([-0.05, 1.1], [-0.35, 1.25]), g = p.g(null, true), i, G = [], E = [], P = [];
+      for (i = 0; i <= 300; i++) { var t = i / 300; G.push([sc.x(t), sc.y(gfun(t))]); E.push([sc.x(t), sc.y(eta(t))]); P.push([sc.x(t), sc.y(gfun(t) * eta(t))]); }
+      p.poly(g, [[sc.x(0), sc.y(0)]].concat(P, [[sc.x(1), sc.y(0)]]), "fill c-warm", true);
+      p.poly(g, P, "curve thin c-warm");
+      p.poly(g, E, "curve thin dash");
+      p.poly(g, G, "curve c-accent");
+      p.axes(sc, { xticks: [0.5, 1], yticks: [1], xlabel: "t" });
+      p.label("el-g" + s.epath, opt ? "\\delta J = x - \\ddot x = 0" : "\\delta J = x - \\ddot x = t", sc.x(0.92), sc.y(gfun(0.92)) - 8, "nw");
+      p.label("el-e", "\\eta(t)", sc.x(c), sc.y(1) - 4, "n");
+      p.label("el-p", "\\delta J \\cdot \\eta", sc.x(c) + 0.1 * sc.sx, sc.y(gfun(c) * 0.5) - 4, "w");
+      var I = EL.simpson(function (t) { return gfun(t) * eta(t); }, 0, 1, 800);
+      return "first variation ⟨δ<i>J</i>, η⟩ = ∫ δ<i>J</i> · η d<i>t</i> = " + num(I, 4) + " &nbsp;·&nbsp; " +
+        (opt ? "zero for every bump: this path satisfies the Euler–Lagrange equation" : "positive: moving the path by −εη lowers <i>J</i>, so <i>x</i> = <i>t</i> is not a minimizer");
+    },
+
+    "shortest-path": function (s, p) {
+      var sc = this.sc = scale([-0.45, 1.55], [-0.5, 1.6], this.box), P0 = [0, 0], P2 = [1, 1], C = s.P, g = p.g(null), i, pts = [], L = 0, prev = null;
+      p.rect(g, sc.x(-0.45), sc.y(1.6), 0, 0, "tick");
+      for (i = 0; i <= 300; i++) {
+        var t = i / 300, q = [(1 - t) * (1 - t) * P0[0] + 2 * t * (1 - t) * C[0] + t * t * P2[0], (1 - t) * (1 - t) * P0[1] + 2 * t * (1 - t) * C[1] + t * t * P2[1]];
+        pts.push([sc.x(q[0]), sc.y(q[1])]);
+        if (prev) L += Math.hypot(q[0] - prev[0], q[1] - prev[1]);
+        prev = q;
+      }
+      p.line(g, sc.x(0), sc.y(0), sc.x(1), sc.y(1), "curve dash");
+      p.poly(g, [[sc.x(0), sc.y(0)], [sc.x(C[0]), sc.y(C[1])], [sc.x(1), sc.y(1)]], "curve thin c-muted dash");
+      p.poly(g, pts, "curve c-accent");
+      p.circle(g, sc.x(0), sc.y(0), 5.5, "dot"); p.circle(g, sc.x(1), sc.y(1), 5.5, "dot");
+      p.circle(g, sc.x(C[0]), sc.y(C[1]), 6, "dot c-warm"); p.circle(g, sc.x(C[0]), sc.y(C[1]), 16, "hitc");
+      p.label("sp-a", "A", sc.x(0) - 6, sc.y(0) + 4, "sw");
+      p.label("sp-b", "B", sc.x(1) + 6, sc.y(1) - 4, "ne");
+      p.label("sp-l", "\\text{dashed: } y = x, \\ \\text{length } \\sqrt 2", sc.x(-0.4), sc.y(1.5), "se");
+      p.label("sp-c", "\\text{blue: } J(y) = \\int \\sqrt{1 + y'^2}\\,dx", sc.x(-0.4), sc.y(1.35), "se");
+      return "curve length " + num(L, 4) + " vs straight line √2 = " + num(Math.SQRT2, 4) + " (excess " + num(L - Math.SQRT2, 4) + ") &nbsp;·&nbsp; drag the brown control point; the excess is zero only when the curve is the line";
+    },
+
+    brachistochrone: function (s, p) {
+      var b = s.B[0], h = s.B[1], C = EL.curves(b, h), depth = Math.max(h, C.c.R * 2) * 1.1 + 0.1;
+      var sc = this.sc = scale([-0.2, 3.6], [-Math.max(depth, 1.3), 0.35], this.box), X = sc.x, Y = function (y) { return sc.y(-y); }, g = p.g(null), i;
+      var tabs = [["line", "c-muted"], ["pow", "c-warm"], ["cyc", "c-accent"]].map(function (c) { return { pts: C[c[0]], T: EL.race(C[c[0]]), cls: c[1], name: c[0] }; });
+      var Tmax = Math.max.apply(null, tabs.map(function (t) { return t.T[t.T.length - 1]; }));
+      if (s.rt > Tmax + 1.2) s.rt = 0;
+      p.line(g, X(-0.2), Y(0), X(3.6), Y(0), "axisline");
+      tabs.forEach(function (t) {
+        p.poly(g, t.pts.map(function (q) { return [X(q[0]), Y(q[1])]; }), "curve " + (t.name === "cyc" ? "" : "thin ") + t.cls);
+        var pos = EL.at(t.pts, t.T, s.rt);
+        p.circle(g, X(pos[0]), Y(pos[1]), 7, "dot " + t.cls);
+      });
+      p.circle(g, X(0), Y(0), 5, "dot"); p.circle(g, X(b), Y(h), 6, "dot"); p.circle(g, X(b), Y(h), 16, "hitc");
+      p.label("br-a", "A", X(0) - 6, Y(0) - 4, "nw");
+      p.label("br-b", "B", X(b) + 8, Y(h), "e");
+      p.label("br-t", "T[y] = \\int \\frac{\\sqrt{1 + y'^2}}{\\sqrt{2 g y}}\\,dx", X(3.55), Y(0) + 8, "sw");
+      p.label("br-c", "\\text{blue cycloid: } x = R(\\theta - \\sin\\theta),\\ y = R(1 - \\cos\\theta)", X(3.55), Y(0) + 58, "sw");
+      var tL = tabs[0].T[tabs[0].T.length - 1], tP = tabs[1].T[tabs[1].T.length - 1], tC = Math.sqrt(C.c.R / EL.g) * C.c.th;
+      return "time to <i>B</i>: line " + num(tL, 3) + " s, steep curve " + num(tP, 3) + " s, cycloid " + num(tC, 3) + " s (fastest) &nbsp;·&nbsp; cycloid radius <i>R</i> = " + num(C.c.R, 3) + " m, Beltrami constant <i>y</i>(1 + <i>y</i>′²) = 2<i>R</i> = " + num(2 * C.c.R, 3) + " &nbsp;·&nbsp; clock " + num(Math.min(s.rt, Tmax), 2) + " s";
+    },
+
+    "hamilton-principle": function (s, p) {
+      var T = s.hT === "short" ? 2 : 4.5, a = s.ha, xs = function (t) { return Math.sin(t) / Math.sin(T); }, eta = function (t) { return Math.sin(Math.PI * t / T); };
+      var x = function (t) { return xs(t) + a * eta(t); };
+      var lo = Math.min(-1.3, -1 / Math.abs(Math.sin(T)) - 0.9), hi = Math.max(1.6, 1 / Math.abs(Math.sin(T)) + 0.9);
+      var sc = scale([-0.1, T * 1.08], [lo, hi], { l: 44, r: 230, t: 16, b: 32 }), g = p.g(null), i, A = [], B = [];
+      for (i = 0; i <= 240; i++) { var t = T * i / 240; A.push([sc.x(t), sc.y(xs(t))]); B.push([sc.x(t), sc.y(x(t))]); }
+      p.line(g, sc.x(0), sc.y(0), sc.x(T * 1.06), sc.y(0), "axisline");
+      p.line(g, sc.x(0), sc.y(lo), sc.x(0), sc.y(hi), "axisline");
+      p.poly(g, B, "curve c-warm");
+      p.poly(g, A, "curve");
+      p.circle(g, sc.x(0), sc.y(0), 4.5, "dot"); p.circle(g, sc.x(T), sc.y(1), 4.5, "dot");
+      p.label("hp-x" + s.hT, "x(t) = \\frac{\\sin t}{\\sin " + T + "}", sc.x(T * 0.05), sc.y(hi) + 4, "se");
+      p.label("hp-p", "x + \\alpha \\sin(\\pi t / T)", sc.x(T * 0.05), sc.y(hi) + 34, "se");
+      var S = function (y) { return EL.simpson(function (t) { var v = EL.d(y, t), z = y(t); return 0.5 * v * v - 0.5 * z * z; }, 0, T, 600); };
+      var S0 = S(xs), c2 = (T / 4) * (Math.PI * Math.PI / (T * T) - 1), Sf = function (al) { return S0 + c2 * al * al; };
+      var span = Math.abs(c2) * 0.7 + 1e-3;
+      EL.inset(p, [395, 40, 185, 150], [-0.85, 0.85], [S0 - span * (c2 < 0 ? 1 : 0.15), S0 + span * (c2 > 0 ? 1 : 0.15)], Sf, a, "S(x + \\alpha\\eta)", "hp-i");
+      return "action <i>S</i> = ∫(<i>K</i> − <i>U</i>) d<i>t</i> = " + num(S(x), 4) + " &nbsp;·&nbsp; <i>S</i>(α) = <i>S</i>₀ + α² · " + num(c2, 3) + ": " +
+        (c2 > 0 ? "a minimum, since T < π" : "the true path is a saddle, not a minimum: this direction lowers the action, since T > π") + ". Stationary, always.";
+    },
+
+    "hamilton-equations": function (s, p) {
+      if (Math.abs(s.hE - s.qE) > 1e-9) { s.qE = s.hE; s.q = [0, Math.sqrt(2 * (s.hE + 1))]; }
+      var sc = scale([-3.9, 3.9], [-2.546, 2.546], this.box), X = sc.x, Y = sc.y, g = p.g(null, true), i, k;
+      var H = function (q, pp) { return pp * pp / 2 - Math.cos(q); };
+      [-0.8, -0.5, -0.1, 0.4, 1.4, 2.2, 3].forEach(function (E) {
+        for (var sgn = -1; sgn <= 1; sgn += 2) {
+          var pts = [];
+          for (i = 0; i <= 240; i++) { var q = -3.9 + 7.8 * i / 240, v = 2 * (E + Math.cos(q)); if (v >= 0) pts.push([X(q), Y(sgn * Math.sqrt(v))]); else if (pts.length) { p.poly(g, pts, "contour"); pts = []; } }
+          if (pts.length > 1) p.poly(g, pts, "contour");
+        }
+      });
+      for (k = -1; k <= 1; k += 2) { var sp = []; for (i = 0; i <= 240; i++) { var q2 = -3.9 + 7.8 * i / 240; sp.push([X(q2), Y(k * Math.sqrt(Math.max(0, 2 * (1 + Math.cos(q2)))))]); } p.poly(g, sp, "curve thin c-warm dash"); }
+      var E0 = s.hE, orbit = [];
+      for (i = 0; i <= 300; i++) { var q3 = -3.9 + 7.8 * i / 300, v3 = 2 * (E0 + Math.cos(q3)); if (v3 >= 0) orbit.push([q3, Math.sqrt(v3)]); }
+      p.axes(sc, { xlabel: "\\theta", ylabel: "p" });
+      p.circle(g, X(s.q[0]), Y(s.q[1]), 6.5, "dot c-accent");
+      var px = X(3.1), py = Y(2.2), Lp = 46, gp = p.g(null);
+      p.rect(gp, px - Lp - 10, py - 12, 2 * Lp + 20, Lp + 24, "inset");
+      p.line(gp, px, py, px + Lp * Math.sin(s.q[0]), py + Lp * Math.cos(s.q[0]), "curve");
+      p.circle(gp, px, py, 3, "dot");
+      p.circle(gp, px + Lp * Math.sin(s.q[0]), py + Lp * Math.cos(s.q[0]), 7, "dot c-accent");
+      p.label("he-H", "H(\\theta, p) = \\tfrac12 p^2 - \\cos\\theta", X(-3.8), Y(2.45), "se");
+      p.label("he-e", "\\dot\\theta = \\partial H / \\partial p = p, \\quad \\dot p = -\\partial H / \\partial \\theta = -\\sin\\theta", X(-3.8), Y(-2.45), "ne");
+      p.label("he-s", "H = 1", X(0) + 6, Y(2) - 4, "ne");
+      return "θ = " + num(s.q[0], 3) + ", <i>p</i> = " + num(s.q[1], 3) + ", <i>H</i> = " + num(H(s.q[0], s.q[1]), 4) + " (conserved) &nbsp;·&nbsp; " +
+        (E0 < 1 ? "<i>H</i> &lt; 1: the pendulum swings back and forth (closed orbit)" : "<i>H</i> &gt; 1: it goes over the top and keeps rotating (open orbit)");
+    },
+
+    "optimal-control": function (s, p) {
+      var r = Math.pow(10, s.lr), k1 = 1 / Math.sqrt(r), k2 = Math.SQRT2 * Math.pow(r, -0.25), T = Math.round(10 * Math.max(1, Math.pow(r, 0.25))), n = 1600, dt = T / n, xs = [1], vs = [0], us = [], ts = [0], i, J = 0;
+      for (i = 0; i < n; i++) {
+        var x = xs[i], v = vs[i], u = -k1 * x - k2 * v;
+        us.push(u);
+        var f = function (a, b) { return [b, -k1 * a - k2 * b]; }, q1 = f(x, v), q2 = f(x + dt / 2 * q1[0], v + dt / 2 * q1[1]), q3 = f(x + dt / 2 * q2[0], v + dt / 2 * q2[1]), q4 = f(x + dt * q3[0], v + dt * q3[1]);
+        xs.push(x + dt / 6 * (q1[0] + 2 * q2[0] + 2 * q3[0] + q4[0])); vs.push(v + dt / 6 * (q1[1] + 2 * q2[1] + 2 * q3[1] + q4[1])); ts.push((i + 1) * dt);
+      }
+      us.push(-k1 * xs[n] - k2 * vs[n]);
+      for (i = 0; i < n; i++) J += 0.5 * dt * (xs[i] * xs[i] + r * us[i] * us[i] + xs[i + 1] * xs[i + 1] + r * us[i + 1] * us[i + 1]);
+      var all = xs.concat(vs, us), lo = Math.max(Math.min.apply(null, all), -6) - 0.2, hi = Math.max(1.2, Math.min(Math.max.apply(null, all), 6)) + 0.4;
+      var sc = scale([-0.3, T * 1.04], [lo, hi]), g = p.g(null, true);
+      BS.line(p, g, sc, ts, us.map(function (u) { return clamp(u, lo, hi); }), "curve c-warm");
+      BS.line(p, g, sc, ts, vs, "curve thin c-muted");
+      BS.line(p, g, sc, ts, xs, "curve c-accent");
+      var stp = T / 5;
+      p.axes(sc, { xticks: [1, 2, 3, 4, 5].map(function (k) { return Math.round(k * stp); }), yticks: [1], xlabel: "t" });
+      p.label("oc-x", "\\text{blue: } x(t)", sc.x(0.6 * T), sc.y(hi) + 4, "se");
+      p.label("oc-v", "\\text{gray: } v = \\dot x", sc.x(0.6 * T), sc.y(hi) + 30, "se");
+      p.label("oc-u", "\\text{brown: } u = -k_1 x - k_2 v", sc.x(0.6 * T), sc.y(hi) + 56, "se");
+      return "<i>r</i> = " + num(r, 2) + ": gains <i>k</i>₁ = 1/√<i>r</i> = " + num(k1, 3) + ", <i>k</i>₂ = √2 <i>r</i><sup>−1/4</sup> = " + num(k2, 3) + " &nbsp;·&nbsp; cost ∫(<i>x</i>² + <i>ru</i>²) d<i>t</i> = " + num(J, 4) + " (Riccati: √2 <i>r</i><sup>1/4</sup> = " + num(Math.SQRT2 * Math.pow(r, 0.25), 4) +
+        ") &nbsp;·&nbsp; cheap control (small <i>r</i>) acts hard and fast; expensive control acts gently";
     }
   };
 

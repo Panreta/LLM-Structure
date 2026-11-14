@@ -76,3 +76,9 @@
   labels: [Probability, Calculus, Finance]
   figure: black-scholes
   description: "Random walks become Brownian motion; quadratic variation forces Itô's calculus; a self-financing hedge turns it into the Black–Scholes equation, its formula, and risk-neutral pricing."
+
+- id: euler-lagrange
+  title: Euler–Lagrange equation
+  labels: [Calculus, Optimization, Physics]
+  figure: euler-lagrange
+  description: "Vary a path, integrate by parts, and the Euler–Lagrange equation appears: shortest paths are lines, the brachistochrone is a cycloid, and the same idea gives Newton, Hamilton and optimal control."
