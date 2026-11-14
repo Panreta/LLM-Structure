@@ -107,7 +107,7 @@
   P.label = function (key, tex, x, y, pos, part) {
     if (this.thumb) return;
     this.seen[key] = true;
-    var e = this.labels.querySelector('[data-key="' + key + '"]');
+    var e = this.labels.querySelector('[data-key="' + (window.CSS && CSS.escape ? CSS.escape(key) : key) + '"]');
     if (!e) {
       e = document.createElement("span");
       e.setAttribute("data-key", key);
@@ -180,6 +180,8 @@
       mk("rect", { x: box.l, y: box.t, width: W - box.l - box.r, height: H - box.t - box.b }, cp);
       var p = new Painter(svg, labels, opts, id);
       var out = (opts.thumb && spec.cover ? spec.cover.call(spec, p) : spec.render.call(spec, state, p)) || "";
+      var desc = !opts.thumb && spec.describe && spec.describe.call(spec, state);
+      if (desc) out = "<span class=\"fig-desc\">" + desc + "</span>" + out;
       Array.prototype.forEach.call(labels.children, function (e) {
         if (!p.seen[e.getAttribute("data-key")]) e.hidden = true;
       });
@@ -327,6 +329,8 @@
       p.poly(gf, curve, "curve");
       p.poly(gf, curve, "hit");
       p.label("f", "y = x^2", X(1.05), Y(f(1.05)), "e", "function");
+      p.label("Sn", "\\text{bars: } S_n = \\textstyle\\sum_i f(x_i^*)\\,\\Delta x", X(0.03), Y(1.08), "se", "riemann-sum");
+      p.label("A", "\\text{shaded: } \\int_0^1 x^2\\,dx = \\tfrac13", X(0.03), Y(0.95), "se", "integral");
 
       return "<i>S<sub>n</sub></i> = " + num(sum, 4) + " &nbsp;·&nbsp; exact area 1/3 ≈ 0.3333 &nbsp;·&nbsp; error " + signed(sum - 1 / 3, 4);
     }
@@ -389,6 +393,9 @@
       var ga = p.g("image");
       p.arrow(ga, O[0], O[1], X(Ax[0]), Y(Ax[1]), "c-accent");
       p.label("Ax", "A_t\\mathbf{x}", X(Ax[0]), Y(Ax[1]), "ne", "image");
+      var e2 = M([-Math.SQRT1_2, Math.SQRT1_2]);
+      p.label("ell", "A_t(\\text{unit circle})", X(e2[0]) - 4, Y(e2[1]) - 4, "nw", "image");
+      p.label("circ", "\\lVert \\mathbf{x} \\rVert = 1", X(-0.94) - 4, Y(-0.34), "w");
 
       return "<i>A<sub>t</sub></i> = (1 − <i>t</i>)<i>I</i> + <i>tA</i> &nbsp;·&nbsp; eigenvalues λ<sub>1</sub> = " + num(l1) +
         ", λ<sub>2</sub> = 1 &nbsp;·&nbsp; <b>x</b> = (" + num(x[0]) + ", " + num(x[1]) + ") ↦ (" + num(Ax[0]) + ", " + num(Ax[1]) + ")";
@@ -447,9 +454,9 @@
       p.poly(glk, pts(lk), "hit");
 
       var right = (s.h + 1) / (s.h + s.t + 2) >= 0.5, ip = peak(po), il = peak(lk), ir = right ? 36 : 164;
-      p.label("po", "p(\\theta \\mid x)", X(ip / N), Y(po[ip]), right ? "nw" : "ne", "posterior");
-      p.label("lk", "p(x \\mid \\theta)", X(il / N), Y(lk[il]), right ? "ne" : "nw", "likelihood");
-      p.label("pr", "p(\\theta)", X(ir / N), Y(pr[ir]), right ? "nw" : "ne", "prior");
+      p.label("po" + s.h + "-" + s.t, "p(\\theta \\mid x) = \\text{Beta}(" + (s.h + 2) + ", " + (s.t + 2) + ")", X(ip / N), Y(po[ip]), right ? "nw" : "ne", "posterior");
+      p.label("lk" + s.h + "-" + s.t, "p(x \\mid \\theta) \\propto \\theta^{" + s.h + "}(1-\\theta)^{" + s.t + "}", X(il / N) + (right ? 12 : -12), Y(lk[il]) + 4, right ? "e" : "w", "likelihood");
+      p.label("pr", "p(\\theta) = \\text{Beta}(2, 2)", X(ir / N), Y(pr[ir]), right ? "nw" : "ne", "prior");
 
       return s.h + " heads, " + s.t + " tails &nbsp;·&nbsp; evidence <i>p</i>(<i>x</i>) = " + sci(ZJ) +
         " &nbsp;·&nbsp; posterior Beta(" + (s.h + 2) + ", " + (s.t + 2) + "), mean " + num((s.h + 2) / (s.h + s.t + 4), 3);
@@ -551,6 +558,7 @@
       p.line(go, X(A[0]), Y(A[1]) - 7, X(A[0]), Y(A[1]) + 7, "curve");
       p.circle(go, X(A[0]), Y(A[1]), 14, "hitc");
       p.label("xs", "\\mathbf{x}^\\star", X(A[0]) + 6, Y(A[1]) - 4, "ne", "objective");
+      p.label("gd-f", "f(\\mathbf{x}) = \\tfrac12(x_1 - 1.2)^2 + \\tfrac{25}{2}(x_2 - 0.4)^2", X(-2.7), Y(2.3), "se", "objective");
 
       if (ch === "gradient") {
         var gf = p.g("gradient");
@@ -590,7 +598,11 @@
         var mid = gxs[Math.min(gxs.length - 1, 3)];
         p.label("ghost-" + ghost, GD.tex[ghost], X(mid[0]), Y(mid[1]) - 6, "n", ghost);
       }
-      if (xs) trail(opt, xs, true);
+      if (xs) {
+        trail(opt, xs, true);
+        var mk2 = xs[Math.min(xs.length - 1, 2)];
+        if (Math.abs(mk2[0]) < 3 && Math.abs(mk2[1]) < 2.5) p.label("main-" + opt, GD.tex[opt], X(mk2[0]) + 8, Y(mk2[1]) + 6, "se", opt);
+      }
 
       var gs = p.g(null);
       p.circle(gs, X(s.x0[0]), Y(s.x0[1]), 6, "dot");
@@ -650,7 +662,9 @@
       });
       var wq = P2[worst];
       if (Math.abs(wq[1] - yh(wq[0])) * sc.sy > 18)
-        p.label("r", "r_i", X(wq[0]) - 4, (Y(wq[1]) + Y(yh(wq[0]))) / 2, "w", "residuals");
+        p.label("r", "r_i = y_i - \\hat y_i", X(wq[0]) - 4, (Y(wq[1]) + Y(yh(wq[0]))) / 2, "w", "residuals");
+      var wr = Math.abs(wq[1] - yh(wq[0])) * sc.sy;
+      if (wr > 34) p.label("sq", "r_i^2", X(wq[0]) + wr / 2, (Y(wq[1]) + Y(yh(wq[0]))) / 2, "c", "squared-error");
 
       var gp = p.g("predictions");
       P2.forEach(function (q) { p.circle(gp, X(q[0]), Y(yh(q[0])), 4.5, "hollow c-accent"); });
@@ -851,6 +865,7 @@
       if (n >= 2) {
         var a = HD.vol(n - 2), b = HD.vol(n), top = Math.max(a, b) + 0.55;
         p.path(g, "M" + X(n - 2) + " " + Y(a + 0.1) + " C" + X(n - 2) + " " + Y(top) + " " + X(n) + " " + Y(top) + " " + X(n) + " " + Y(b + 0.18), "curve thin c-warm");
+        p.label("bv-f", "V_n = \\pi^{n/2} / \\Gamma(\\tfrac n2 + 1)", X(20.5), Y(5.6), "sw");
         p.label("bv-r" + n, "\\times \\tfrac{2\\pi}{" + n + "}", X(n - 1), (Y(a + 0.1) + Y(b + 0.18)) / 8 + 0.75 * Y(top) - 4, "n");
       }
       return "<i>V</i><sub>" + n + "</sub> = π<sup>" + n + "/2</sup> / Γ(" + n + "/2 + 1) = " + num(HD.vol(n), 4) +
@@ -886,6 +901,7 @@
       p.axes(sc, { xticks: [1, 2], xlabel: "\\lVert u \\rVert^2" });
       p.line(p.g(null), sc.x(1), sc.y(0), sc.x(1), sc.y(top * 1.1), "curve thin c-muted dash");
       p.label("un-l", "1 - \\varepsilon", sc.x(1 - e), sc.y(0) + 4, "s");
+      p.label("un-f", "\\text{density of } \\lVert u \\rVert^2, \\ n\\lVert u \\rVert^2 \\sim \\chi^2_n", sc.x(1.45), sc.y(top * 0.8), "e");
       p.label("un-r", "1 + \\varepsilon", sc.x(1 + e), sc.y(0) + 4, "s");
       var tail = HD.gammaP(n / 2, n * (1 - e) / 2) + 1 - HD.gammaP(n / 2, n * (1 + e) / 2);
       var bound = 2 * Math.exp(-n * e * e / 8);
@@ -908,6 +924,7 @@
       p.axes(sc, { xticks: [0, 45, 90, 135, 180], xlabel: "\\theta^\\circ" });
       p.line(g, sc.x(lo), sc.y(0), sc.x(lo), sc.y(top * 1.08), "curve thin c-muted dash");
       p.label("or-l", "\\cos\\theta = \\varepsilon", sc.x(lo), sc.y(top * 1.08), "nw");
+      p.label("or-f", "p(\\theta) \\propto \\sin^{n-2}\\theta", sc.x(180 - lo) + 8, sc.y(top * 0.9), "e");
       return "P(|cos θ| ≥ ε) = " + sci(Math.max(out / Z, 1e-300)) + " &nbsp;·&nbsp; Gaussian bound 4e<sup>−<i>n</i>ε²/8</sup> = " +
         (4 * Math.exp(-n * e * e / 8) >= 1 ? num(4 * Math.exp(-n * e * e / 8), 2) + " (no information yet)" : sci(4 * Math.exp(-n * e * e / 8)));
     },
@@ -1110,6 +1127,7 @@
         p.text(g, X(x), Y(0) + (a > 0 ? 18 : -8), "o" + (k + 1));
       });
       p.label("in-r", "r_i", X(G + 0.15), Y(3.05), "e");
+      p.label("in-A", "\\hat A_i = \\frac{r_i - \\operatorname{mean}(r)}{\\operatorname{std}(r)}", X(0.15), Y(-2.5), "e");
       var right = r.filter(function (v) { return v; }).length;
       return right + " of " + G + " answers correct &nbsp;·&nbsp; mean reward " + num(mean) + ", std " + num(sd) + " &nbsp;·&nbsp; " +
         (sd > 1e-9 ? "correct answers get Â = " + signed((1 - mean) / sd) + ", wrong ones " + signed(-mean / sd) :
@@ -1248,6 +1266,9 @@
       p.circle(gx, X(s.x0[0]), Y(s.x0[1]), 6, "dot");
       p.circle(gx, X(s.x0[0]), Y(s.x0[1]), 16, "hitc");
       p.label("cg-0", "x_0", X(s.x0[0]) - 6, Y(s.x0[1]) - 6, "nw");
+      p.label("cg-f", "\\varphi(x) = \\tfrac12 x^\\top H x - g^\\top x", X(-3.1), Y(2.05), "se");
+      p.label("cg-a", "\\text{brown: steepest descent}", X(-3.1), Y(1.72), "se");
+      p.label("cg-b", "\\text{blue: conjugate gradient}", X(-3.1), Y(1.42), "se");
       return "<span style=\"color:var(--warm)\">steepest descent</span>: " + it + " steps to reach the solution (zigzag) &nbsp;·&nbsp; " +
         "<span style=\"color:var(--focus)\">conjugate gradient</span>: exactly 2 steps, one per dimension";
     },
@@ -1433,6 +1454,7 @@
         p.arrow(gp, X(0), Y(0), X(fv[0]), Y(fv[1]), t[1]);
         p.circle(gp, X(v[0]), Y(v[1]), 14, "hitc");
         p.label("an-" + t[0], t[0], X(v[0]), Y(v[1]), "e");
+        if (m > 0 && t[0] === "q") { var mid = a0 + m * th / 2; p.label("an-mt", "m\\theta", X(1.08 * r * Math.cos(mid)), Y(1.08 * r * Math.sin(mid)), Math.cos(mid) >= 0 ? "ne" : "nw"); }
       });
       var fq = RO.rot(s.q, m * th), fk = RO.rot(s.k, m * th);
       var d0 = RO.ang(s.k) - RO.ang(s.q), d1 = RO.ang(fk) - RO.ang(fq), wrap = function (a) { return Math.atan2(Math.sin(a), Math.cos(a)); };
@@ -1667,6 +1689,8 @@
       FE.curve(p, g, sc, function (x) { return 8 * v(x); }, "curve thin c-muted dash");
       p.axes(sc, { xticks: [0.5, 1], xlabel: "x" });
       p.label("wf-v", "v(x)", X(c), Y(8) - 4, "n");
+      p.label("wf-a", "\\text{blue: } u'(x)\\,v'(x)", X(0.62), Y(21), "se");
+      p.label("wf-b", "\\text{brown: } f(x)\\,v(x)", X(0.62), Y(17), "se");
       var I1 = 0, I2 = 0;
       for (i = 0; i < 40; i++) {
         var x0 = a + (b - a) * i / 40, x1 = a + (b - a) * (i + 1) / 40;
@@ -1778,7 +1802,8 @@
       FE.curve(p, g, sc, FE.u, "curve thin");
       p.poly(g, U.map(function (v, k) { return [X(k / N), Y(v)]; }), "curve c-accent");
       if (N <= 32) for (i = 1; i < N; i++) p.circle(g, X(i / N), Y(U[i]), 3.5, "dot c-accent");
-      p.label("so-uh", "u_h", X(0.18), Y(U[Math.round(0.18 * N)] || FE.u(0.18)) - 6, "nw");
+      p.label("so-uh", "u_h = \\textstyle\\sum_j U_j \\phi_j", X(0.18), Y(U[Math.round(0.18 * N)] || FE.u(0.18)) - 6, "nw");
+      p.label("so-u", "u = \\sin \\pi x + 0.4 \\sin 2\\pi x", X(0.62), Y(FE.u(0.62)) - 6, "ne");
       return "solve <i>KU</i> = <i>F</i> with " + (N - 1) + " unknowns &nbsp;·&nbsp; errors: L² " + sci(E.L2) + ", energy ‖(<i>u</i> − <i>u<sub>h</sub></i>)′‖ " + sci(E.H1) +
         " &nbsp;·&nbsp; at the nodes only " + sci(Math.max(E.node, 1e-16)) + ": in 1-D, linear elements are exact at the nodes up to quadrature";
     },
@@ -1810,6 +1835,7 @@
       });
       p.poly(g, [[-1, -1], [0, -1], [0, 0], [1, 0], [1, 1], [-1, 1]].map(function (q) { return [X(q[0]), Y(q[1])]; }), "curve thin", true);
       p.label("ap-c", "\\text{re-entrant corner}", X(0) + 6, Y(0) + 6, "se");
+      p.label("ap-f", "-\\Delta T = q, \\quad T = 0 \\text{ on the edges}", X(0.1), Y(-0.55), "e");
       if (s.load !== "uniform") {
         p.circle(g, X(s.src[0]), Y(s.src[1]), 7, "hollow c-accent");
         p.circle(g, X(s.src[0]), Y(s.src[1]), 18, "hitc");
@@ -2109,6 +2135,78 @@
         "expected length Σ <i>p<sub>i</sub></i>(−log₂ <i>q<sub>i</sub></i>) = " + num(CE, 3) + " bits ≥ entropy <i>H</i>(<i>p</i>) = " + num(H, 3) + " bits &nbsp;·&nbsp; waste = KL(<i>p</i> ‖ <i>q</i>) = " + num(CE - H, 3) + " bits, zero only when <i>q</i> = <i>p</i>";
     }
   };
+
+  // ---------- one-sentence descriptions shown above each readout ----------
+  function byBlock(map) { return function (s) { var d = map[s.ch]; return typeof d === "function" ? d(s) : d; }; }
+
+  specs["riemann-integral"].describe = function () {
+    return "The black curve is y = x² on [0, 1]. Each bar has width Δx = 1/n and the height of the curve at its sample point (dot); together the bars make the Riemann sum S<sub><i>n</i></sub>. The shaded region under the curve is the exact area.";
+  };
+  specs.diagonalization.describe = function () {
+    return "Gray grid and dashed circle: the plane and the unit circle before the map. Slanted grid and blue ellipse: their images under <i>A<sub>t</sub></i> = (1 − <i>t</i>)<i>I</i> + <i>tA</i>. The dashed brown diagonals are the eigenlines <b>v</b><sub>1</sub>, <b>v</b><sub>2</sub>; the brown arrows are the parts of <b>x</b> along them, stretched by λ<sub>1</sub> and λ<sub>2</sub>.";
+  };
+  specs["bayes-rule"].describe = function () {
+    return "Densities over the coin's bias θ: the prior (dashed gray), the likelihood of the observed flips rescaled to area 1 (dotted brown), and the posterior (blue), which is proportional to prior × likelihood.";
+  };
+  specs["least-squares"].describe = function () {
+    return "Black dots: the data (<i>x<sub>i</sub></i>, <i>y<sub>i</sub></i>). Blue line: the least-squares fit, with hollow dots at the predictions ŷ<sub><i>i</i></sub>. Brown segments are the residuals <i>r<sub>i</sub></i> = <i>y<sub>i</sub></i> − ŷ<sub><i>i</i></sub>, and each brown square has area <i>r<sub>i</sub></i>²; the line makes their total area as small as possible.";
+  };
+
+  specs["gradient-descent"].describe = byBlock({
+    objective: "Contour lines of the valley <i>f</i>, 25 times steeper across than along. The cross is the minimizer <b>x</b>*, the black dot the start <b>x</b><sub>0</sub>.",
+    gradient: "Gray arrows: the downhill direction −∇<i>f</i> on a grid. Brown arrow: ∇<i>f</i>(<b>x</b><sub>0</sub>) at unit length, perpendicular to the contour through <b>x</b><sub>0</sub>.",
+    "gradient-descent": "Contours of <i>f</i>. Blue: the gradient-descent path from <b>x</b><sub>0</sub>, one dot per step.",
+    momentum: "Contours of <i>f</i>. Blue: the momentum path from <b>x</b><sub>0</sub>, one dot per step. Dashed gray: gradient descent, the method it improves on.",
+    nesterov: "Contours of <i>f</i>. Blue: the Nesterov path. Dashed gray: heavy-ball momentum with the same η and β.",
+    rmsprop: "Contours of <i>f</i>. Blue: the RMSProp path. Dashed gray: gradient descent.",
+    adam: "Contours of <i>f</i>. Blue: the Adam path. Dashed gray: RMSProp.",
+    adamw: "Contours of <i>f</i>. Blue: the AdamW path. Dashed gray: Adam without weight decay. The dot at the origin is where the decay pulls.",
+    muon: "Contours of <i>f</i>. Blue: the Muon path. Dashed gray: Adam."
+  });
+
+  specs["high-dimension"].describe = byBlock({
+    "unit-norm": "Blue: the exact density of ‖<i>u</i>‖² for <i>u</i> with <i>n</i> independent N(0, 1/<i>n</i>) entries. Brown tails: the probability that ‖<i>u</i>‖² misses 1 by at least ε.",
+    orthogonal: "Blue: the density of the angle θ between two independent random directions in ℝ<sup><i>n</i></sup>. Brown tails: the angles with |cos θ| ≥ ε, that is, not nearly perpendicular.",
+    jl: "Histogram of the 435 ratios ‖<i>Qv<sub>i</sub></i> − <i>Qv<sub>j</sub></i>‖² / ‖<i>v<sub>i</sub></i> − <i>v<sub>j</sub></i>‖² for 30 random points projected from ℝ<sup>200</sup> to ℝ<sup><i>n</i></sup>. The brown band is 1 ± ε.",
+    "corner-spheres": "A 2-D drawing of the <i>n</i>-dimensional setup: gray unit spheres centered at the corners (±1, …, ±1) of the box [−2, 2]<sup><i>n</i></sup>, and the inner sphere drawn at its true radius √<i>n</i> − 1 (blue, brown once it leaves the box).",
+    "ball-volume": "Bars: the volume <i>V<sub>n</sub></i> of the unit ball in ℝ<sup><i>n</i></sup> for <i>n</i> = 0, …, 20, with the selected <i>n</i> in blue. The brown arc is the step <i>V<sub>n</sub></i> = (2π/<i>n</i>)<i>V</i><sub><i>n</i>−2</sub>.",
+    shell: "Blue: the density <i>n r</i><sup><i>n</i>−1</sup> of the distance from the center of a uniform random point in the unit <i>n</i>-ball. The brown area is the share of the volume within ε of the surface."
+  });
+
+  specs.grpo.describe = byBlock({
+    introduction: "One question, <i>G</i> sampled answers <i>o<sub>i</sub></i>. Dots: each answer's reward <i>r<sub>i</sub></i> (filled = correct). Bars: the group-normalized advantage Â<sub><i>i</i></sub>; blue pushes an answer up, brown pushes it down.",
+    preliminaries: "The running example as a state diagram: states A and B, arrows labelled with each action's probability and reward, and the state values <i>V</i><sup>π</sup> inside the circles.",
+    "build-the-model": "Bar <i>t</i> has height (1 − γ)γ<sup><i>t</i></sup>, the weight of time <i>t</i> in the visitation distribution. Its blue part is the chance of being in B at time <i>t</i> when starting from A; the blue parts add up to 𝒱<sup>π</sup>(B).",
+    "is-it-solvable": "Black: the true objective <i>J</i>(θ′). Blue: the surrogate <i>L</i><sub>θ</sub>(θ′), built from samples of the current policy θ (black dot). Gray band: the trust region KL ≤ δ. Blue dot: the surrogate's best point in the band; ring: the true <i>J</i> there.",
+    trpo: "Gray lines: level sets of the linear objective <i>g</i>ᵀ<i>x</i>. Gray ellipse: the trust region ½<i>x</i>ᵀ<i>Hx</i> ≤ δ. Brown: the gradient <i>g</i>. Blue: TRPO's step, where a level line touches the ellipse; gray arrow: a step along <i>g</i> to the boundary.",
+    "conjugate-gradient": "Contours of φ(<i>x</i>) = ½<i>x</i>ᵀ<i>Hx</i> − <i>g</i>ᵀ<i>x</i>, centered at the solution <i>x</i> = <i>H</i>⁻¹<i>g</i>. Brown: steepest descent with exact line search. Blue: conjugate gradient.",
+    "line-search": "Black: the true objective <i>J</i>(θ′). The marks on it are the candidates θ<sub><i>k</i></sub> + α<sup><i>i</i></sup>·(full TRPO step) for <i>i</i> = 0, 1, 2, …: brown rings are rejected, the blue dot is the first one accepted.",
+    ppo: "Black: <i>J</i>(θ′). Blue: the surrogate <i>L</i><sub>θ</sub>(θ′). Gray band: the trust region. Blue dot: the exact solution of the trust-region problem; brown ring: where TRPO's approximate step lands.",
+    "ppo-penalty": "Black: <i>J</i>(θ′). Blue: the surrogate <i>L</i><sub>θ</sub>(θ′). Brown: the penalized objective <i>L</i><sub>θ</sub>(θ′) − β·KL. Brown dot: its maximizer; ring: the true <i>J</i> there.",
+    "ppo-clip": "The PPO-Clip objective for one sample as a function of the probability ratio <i>r</i>: blue min{<i>r</i>Â, clip(<i>r</i>, 1 − ε, 1 + ε)Â}, dashed the unclipped <i>r</i>Â. In the gray region the objective is flat, so its gradient is 0."
+  });
+
+  specs.rope.describe = byBlock({
+    "relative-position": "Cell (<i>m</i>, <i>n</i>) is colored by the attention score ⟨<i>f</i>(<i>q</i>, <i>m</i>), <i>f</i>(<i>k</i>, <i>n</i>)⟩ between <i>q</i> at position <i>m</i> (rows) and <i>k</i> at position <i>n</i> (columns). The dashed line is <i>m</i> = <i>n</i>.",
+    length: "The complex plane. Gray: <i>q</i> and <i>k</i>. Blue and brown: <i>f</i>(<i>q</i>, <i>m</i>) = <i>q</i>e<sup><i>imθ</i></sup> and <i>f</i>(<i>k</i>, <i>m</i>), rotated by <i>m</i>θ. The dashed circles have radius ‖<i>q</i>‖ and ‖<i>k</i>‖.",
+    angle: "Each dot is one more rotation by θ: <i>f</i>(<i>q</i>, 0), <i>f</i>(<i>q</i>, 1), …, <i>f</i>(<i>q</i>, <i>m</i>) along the blue arc of angle <i>m</i>θ, and the same for <i>k</i> in brown.",
+    "embedding-form": "Gray: <i>q</i> and <i>k</i>. Blue: <i>q</i> rotated by <i>m</i>θ (position <i>m</i>). Brown: <i>k</i> rotated by <i>n</i>θ (position <i>n</i>). The black arc is the angle between the rotated vectors, which sets the score.",
+    frequencies: "One dial per pair <i>i</i> = 1, …, <i>d</i>/2. At position <i>m</i>, the hand of dial <i>i</i> has turned by <i>m</i>θ<sub><i>i</i></sub> with θ<sub><i>i</i></sub> = 10000<sup>−2(<i>i</i>−1)/<i>d</i></sup>: blue dials are fast, black medium, brown slow."
+  });
+
+  specs.fem.describe = byBlock({
+    "strong-form": "Blue: the exact solution <i>u</i>. Brown: the load <i>f</i> = −<i>u</i>″, scaled by 1/25 to fit. Both vanish at the ends, matching the boundary conditions.",
+    "weak-form": "Dashed: a test function <i>v</i>, a bump with center <i>c</i> and width <i>w</i>. Blue: the integrand <i>u</i>′<i>v</i>′. Brown: the integrand <i>f v</i>. The weak form says the two shaded areas are equal.",
+    "lax-milgram": "Bar <i>k</i> is the energy ratio <i>a</i>(φ<sub><i>k</i></sub>, φ<sub><i>k</i></sub>)/‖φ<sub><i>k</i></sub>′‖² = 1 + <i>c</i>/(<i>k</i>π)² of the mode φ<sub><i>k</i></sub> = sin <i>k</i>π<i>x</i>. The dashed line is the coercivity constant α; a brown bar has negative energy.",
+    galerkin: "A 2-D model of the solution space with the energy inner product. Gray line: the subspace <i>V<sub>h</sub></i>. Blue dot: the Galerkin solution <i>u<sub>h</sub></i>. Dashed ellipse: all points at <i>u<sub>h</sub></i>'s energy distance from <i>u</i>. Gray ring: the ordinary orthogonal projection.",
+    "finite-elements": "Gray tents: the hat functions φ<sub><i>i</i></sub>, with the selected one in brown. Black: the exact <i>u</i>. Blue: its interpolant Σ <i>u</i>(<i>x<sub>i</sub></i>)φ<sub><i>i</i></sub>, which matches <i>u</i> at the nodes.",
+    assembly: "Top: the mesh with nodes 0, …, <i>N</i>; the brown element is selected. Below: the stiffness matrix <i>K</i> (times <i>h</i>), with the entries that element contributes outlined in brown.",
+    solve: "Black: the exact solution <i>u</i>. Blue: the finite element solution <i>u<sub>h</sub></i>, linear between the nodes (dots).",
+    convergence: "Measured errors versus mesh size <i>h</i> on log–log axes: brown the energy error ‖(<i>u</i> − <i>u<sub>h</sub></i>)′‖, blue the L² error ‖<i>u</i> − <i>u<sub>h</sub></i>‖. The large dots mark the selected <i>N</i>.",
+    application: function (s) {
+      return "Temperature <i>T</i> in an L-shaped plate whose edges are held at <i>T</i> = 0, solving −Δ<i>T</i> = <i>q</i>: darker brown is hotter. Each triangle is one linear element" + (s.load === "uniform" ? ", and the heat source is uniform." : "; the ring is the hot spot.");
+    }
+  });
 
   window.Figures = { specs: specs, mount: mount };
 })();

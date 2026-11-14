@@ -51,7 +51,8 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:"STIX Two Tex
 /* classical figures (assets/figures.js) */
 .diagram.is-figure{padding:20px 0 12px}
 .figure{background:var(--surface);border:1.5px solid color-mix(in srgb,var(--ink) 20%,transparent);border-radius:16px;padding:12px 14px 14px}
-.fig-stage{position:relative}
+.fig-stage{position:relative;overflow:hidden}
+@media (max-width:600px){.fig-label{font-size:.74em;padding:1px 3px}}
 .fig{display:block;width:100%;height:auto;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
 .fig.draggable{touch-action:none}
 .fig.thumb *{vector-effect:non-scaling-stroke}
