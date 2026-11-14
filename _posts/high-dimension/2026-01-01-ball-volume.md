@@ -1,6 +1,6 @@
 ---
 title: Volume of the ball
-order: 2
+order: 5
 tex: 'V_n = \frac{\pi^{n/2}}{\left(\frac n2\right)!}, \qquad V_n = \frac{2\pi}{n}\,V_{n-2}'
 ---
 Write $$V_n$$ for the volume of the unit ball $$B^n$$; a ball of radius $$r$$ has volume $$V_n r^n$$.

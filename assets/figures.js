@@ -792,7 +792,8 @@
     controls: function (s) { return HD.controls[s.ch] || []; },
     hint: "Each chapter has its own plot. Raise the dimension and watch the mass concentrate.",
     init: function (s, thumb) {
-      s.ch = "corner-spheres";
+      s.ch = thumb ? "corner-spheres" : "unit-norm";
+      this.box = thumb ? { l: 12, r: 12, t: 12, b: 12 } : BOX;
       for (var c in HD.controls) HD.controls[c].forEach(function (o) { s[o.key] = o.value; });
       if (thumb) s.nBox = 10;
     },

@@ -39,4 +39,4 @@
   title: High-dimensional geometry
   labels: [Probability, Geometry]
   figure: high-dimension
-  description: "Why a high-dimensional ball keeps its mass on the shell, why random vectors are nearly orthogonal, and how that gives the Johnson–Lindenstrauss lemma."
+  description: "Why random vectors have length about 1 and are nearly orthogonal, how that gives the Johnson–Lindenstrauss lemma, and why a high-dimensional ball keeps its mass on the shell."

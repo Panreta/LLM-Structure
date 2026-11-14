@@ -1,6 +1,6 @@
 ---
 title: Nearly orthogonal
-order: 5
+order: 2
 tex: 'P\bigl(\lvert \langle u, v \rangle \rvert \ge \varepsilon\bigr) \le 4\exp\!\left(-\frac{n\varepsilon^2}{8}\right)'
 ---
 Draw two independent vectors $$u, v$$ with entries from $$\mathcal{N}(0, \tfrac1n)$$. In the plane a random angle is spread out, but in high dimensions they are almost always nearly perpendicular.
