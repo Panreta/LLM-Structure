@@ -45,6 +45,6 @@ The site is built by GitHub Pages (Jekyll), so adding a diagram means adding fil
 
 By default a diagram is drawn as a flow of blocks, like the transformer. A diagram can instead be drawn as a classical, interactive figure (a graph, a plane, a contour plot) by adding `figure: <name>` to its `diagrams.yml` entry. `<name>` is one of the figures in `assets/figures.js`: `riemann-integral`, `diagonalization`, `bayes-rule`, `gradient-descent` or `least-squares`.
 
-The block files then describe the parts of the figure. Each figure tags parts of its drawing with block slugs: tapping a part opens that block's notes, and a row of chips under the figure lists every block. `kind`, `from` and `to` are ignored for figures. To draw a new kind of figure, add an entry to `specs` in `assets/figures.js`.
+The block files then describe the parts of the figure. Each figure tags parts of its drawing with block slugs: tapping a part opens that block's notes, and a row of chips under the figure lists every block. `kind`, `from` and `to` are ignored for figures. A figure spec with `story: true` (like `gradient-descent`) reads its blocks as numbered chapters instead: the chips become a table of contents, the details panel gets previous/next buttons, and opening a chapter redraws the figure for it. To draw a new kind of figure, add an entry to `specs` in `assets/figures.js`.
 
 A folder with no `diagrams.yml` entry still appears on the home page, titled from the folder name. A `diagrams.yml` entry with no folder appears as an empty diagram.

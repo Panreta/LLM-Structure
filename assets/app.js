@@ -59,6 +59,8 @@
   // A diagram with `figure:` is drawn as a classical figure (assets/figures.js);
   // without one, as a flow of blocks.
   function hasFigure(d) { return !!(d.figure && window.Figures && window.Figures.specs[d.figure]); }
+  // A story figure reads its blocks as numbered chapters, in order.
+  function isStory(d) { return hasFigure(d) && !!window.Figures.specs[d.figure].story; }
   function find(id) { return cur && blocksOf(cur.id).filter(function (b) { return b.id === id; })[0] || null; }
 
   var labels = [];
@@ -131,7 +133,7 @@
       }
       main.appendChild(el("h2", "card-title", d.title));
       if (d.description) main.appendChild(el("p", "card-desc", d.description));
-      var noun = hasFigure(d) ? "part" : "block";
+      var noun = isStory(d) ? "chapter" : hasFigure(d) ? "part" : "block";
       main.appendChild(el("p", "card-count", bs.length + " " + noun + (bs.length === 1 ? "" : "s")));
 
       // Preview: a thumbnail of the figure, or a spine with one bar per block.
@@ -227,11 +229,11 @@
       onPart: function (id) { open(id); },
       typeset: typeset
     });
-    var parts = el("div", "parts");
-    parts.appendChild(el("p", "parts-title", "Parts of this figure"));
+    var story = isStory(cur), parts = el("div", "parts");
+    parts.appendChild(el("p", "parts-title", story ? "Chapters" : "Parts of this figure"));
     var row = el("div", "chips");
-    bs.forEach(function (b) {
-      var c = el("button", "chip chip-sm", b.title);
+    bs.forEach(function (b, i) {
+      var c = el("button", "chip chip-sm", story ? (i + 1) + ". " + b.title : b.title);
       c.type = "button";
       c.dataset.id = b.id;
       c.addEventListener("click", function () { open(b.id); });
@@ -326,6 +328,19 @@
     }
     p.appendChild(notes);
 
+    if (isStory(cur)) {
+      var bs = blocksOf(cur.id), i = bs.indexOf(b), nav = el("nav", "story-nav");
+      nav.setAttribute("aria-label", "Chapters");
+      [[bs[i - 1], "prev", "← "], [bs[i + 1], "next", ""]].forEach(function (t) {
+        if (!t[0]) { nav.appendChild(el("span")); return; }
+        var n = el("button", "story-step " + t[1], t[2] + t[0].title + (t[1] === "next" ? " →" : ""));
+        n.type = "button";
+        n.addEventListener("click", function () { open(t[0].id); });
+        nav.appendChild(n);
+      });
+      p.appendChild(nav);
+    }
+
     if (b.edit) {
       var a = el("a", "edit-link", "Edit this block on GitHub");
       a.href = b.edit;
@@ -354,6 +369,7 @@
     if (d && d === cur) {
       if (bid && find(bid)) { if (bid !== openId) open(bid); }
       else if (openId) close();
+      else history.replaceState(null, "", "#" + cur.id);
       return;
     }
 
@@ -367,6 +383,7 @@
     if (d) {
       renderView();
       if (bid && find(bid)) open(bid, initial);
+      else if (isStory(d) && wide() && blocksOf(d.id).length) open(blocksOf(d.id)[0].id, true);
       else history.replaceState(null, "", "#" + d.id);
     } else {
       document.title = baseTitle;

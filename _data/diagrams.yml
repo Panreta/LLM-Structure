@@ -24,10 +24,10 @@
   description: "Prior, likelihood and posterior for a coin's bias: watch the belief sharpen as flips come in."
 
 - id: gradient-descent
-  title: Gradient descent
-  labels: [Optimization, Calculus]
+  title: From gradient descent to Muon
+  labels: [Optimization, Calculus, Large Language Model]
   figure: gradient-descent
-  description: "Descending an elongated bowl: the path, the gradient, and how the learning rate makes it zigzag or diverge."
+  description: "One narrow valley, nine chapters: gradient descent, momentum, Nesterov, RMSProp, Adam, AdamW and Muon, each fixing what the last one got wrong."
 
 - id: least-squares
   title: Least squares

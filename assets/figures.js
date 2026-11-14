@@ -139,8 +139,10 @@
   function mount(host, name, opts) {
     var spec = specs[name];
     opts = opts || {};
-    var state = {}, current = null, drawn = false;
-    (spec.controls || []).forEach(function (c) { state[c.key] = c.value; });
+    var state = {}, current = null, drawn = false, ctlBox = null, ctlSig = null;
+    // controls is a list, or a function of the state (rebuilt when it changes)
+    function ctls() { return typeof spec.controls === "function" ? spec.controls(state) : spec.controls || []; }
+    ctls().forEach(function (c) { state[c.key] = c.value; });
     if (spec.init) spec.init(state);
 
     var id = "figclip" + (++uid), box = spec.box || BOX;
@@ -155,7 +157,7 @@
 
     var readout = null;
     if (!opts.thumb) {
-      if (spec.controls) wrap.appendChild(controls());
+      if (spec.controls) { ctlBox = div("fig-controls"); wrap.appendChild(ctlBox); }
       readout = div("fig-readout");
       readout.setAttribute("aria-live", "polite");
       wrap.appendChild(readout);
@@ -175,14 +177,19 @@
         if (!p.seen[e.getAttribute("data-key")]) e.hidden = true;
       });
       if (readout) readout.innerHTML = out;
+      if (ctlBox) controls();
       if (drawn && p.fresh.length && opts.typeset) opts.typeset(labels);
       drawn = true;
-      highlight(current);
+      mark();
     }
 
     function controls() {
-      var box = div("fig-controls");
-      spec.controls.forEach(function (c) {
+      var list = ctls(), sig = list.map(function (c) { return c.key; }).join(" ");
+      if (sig === ctlSig) return;
+      ctlSig = sig;
+      var box = ctlBox;
+      while (box.lastChild) box.removeChild(box.lastChild);
+      list.forEach(function (c) {
         if (c.type === "choice") {
           var row = div("fig-control");
           row.appendChild(div("fig-control-label", c.label));
@@ -211,9 +218,9 @@
         lab.appendChild(div("fig-control-label", c.label));
         var input = document.createElement("input");
         input.type = "range";
-        input.min = c.min; input.max = c.max; input.step = c.step; input.value = c.value;
+        input.min = c.min; input.max = c.max; input.step = c.step; input.value = state[c.key];
         var out = document.createElement("output");
-        out.textContent = c.show(c.value);
+        out.textContent = c.show(state[c.key]);
         input.addEventListener("input", function () {
           state[c.key] = parseFloat(input.value);
           out.textContent = c.show(state[c.key]);
@@ -223,7 +230,6 @@
         lab.appendChild(out);
         box.appendChild(lab);
       });
-      return box;
     }
 
     // Tap a part to open it; drag (spec.drag) or tap empty space (spec.click).
@@ -257,8 +263,13 @@
       stage.addEventListener("pointercancel", function () { down = null; dragging = false; });
     }
 
+    // Mark the open block's parts. A figure with select() may also redraw for it.
     function highlight(slug) {
       current = slug;
+      if (spec.select && spec.select(state, slug)) draw(); else mark();
+    }
+    function mark() {
+      var slug = current;
       Array.prototype.forEach.call(stage.querySelectorAll("[data-part]"), function (n) {
         n.classList.toggle("on", n.getAttribute("data-part") === slug);
       });
@@ -438,68 +449,161 @@
     }
   };
 
-  // Gradient descent on f(x) = ½(x₁² + 6x₂²).
+  // From gradient descent to Muon, one optimizer per chapter, on the valley
+  // f(x) = ½(x₁ − 1.2)² + 12.5(x₂ − 0.4)² (curvatures 1 and 25).
+  var GD = { A: [1.2, 0.4], K: 25, B2: 0.99 };
+  GD.f = function (v) { var a = v[0] - GD.A[0], b = v[1] - GD.A[1]; return (a * a + GD.K * b * b) / 2; };
+  GD.grad = function (v) { return [v[0] - GD.A[0], GD.K * (v[1] - GD.A[1])]; };
+  // Five Newton–Schulz steps, as in Muon. On a diagonal matrix they act on
+  // each singular value s separately, pushing it toward 1.
+  GD.ns = function (s) { for (var j = 0; j < 5; j++) s = 3.4445 * s - 4.7750 * s * s * s + 2.0315 * s * s * s * s * s; return s; };
+  GD.names = { "gradient-descent": "Gradient descent", momentum: "Momentum", nesterov: "Nesterov", rmsprop: "RMSProp", adam: "Adam", adamw: "AdamW", muon: "Muon" };
+  GD.tex = { "gradient-descent": "\\text{GD}", momentum: "\\text{Momentum}", nesterov: "\\text{Nesterov}", rmsprop: "\\text{RMSProp}", adam: "\\text{Adam}", adamw: "\\text{AdamW}", muon: "\\text{Muon}" };
+  GD.ghost = { momentum: "gradient-descent", nesterov: "momentum", rmsprop: "gradient-descent", adam: "rmsprop", adamw: "adam", muon: "adam" };
+  GD.run = function (opt, s) {
+    var x = s.x0.slice(), v = [0, 0], m = [0, 0], q = [0, 0], xs = [x], k, i;
+    for (k = 1; k <= s.T; k++) {
+      var eta, beta, d = [0, 0], g;
+      if (opt === "gradient-descent") { eta = s.etaGD; d = GD.grad(x); }
+      else if (opt === "momentum" || opt === "nesterov") {
+        eta = s[opt === "momentum" ? "etaM" : "etaN"]; beta = s[opt === "momentum" ? "betaM" : "betaN"];
+        g = GD.grad(opt === "nesterov" ? [x[0] - eta * beta * v[0], x[1] - eta * beta * v[1]] : x);
+        v = [beta * v[0] + g[0], beta * v[1] + g[1]];
+        d = v;
+      } else if (opt === "rmsprop") {
+        eta = s.etaR; g = GD.grad(x);
+        for (i = 0; i < 2; i++) { q[i] = s.rho * q[i] + (1 - s.rho) * g[i] * g[i]; d[i] = g[i] / (Math.sqrt(q[i]) + 1e-8); }
+      } else if (opt === "adam" || opt === "adamw") {
+        eta = s.etaA; g = GD.grad(x);
+        for (i = 0; i < 2; i++) {
+          m[i] = s.beta1 * m[i] + (1 - s.beta1) * g[i];
+          q[i] = GD.B2 * q[i] + (1 - GD.B2) * g[i] * g[i];
+          d[i] = (m[i] / (1 - Math.pow(s.beta1, k))) / (Math.sqrt(q[i] / (1 - Math.pow(GD.B2, k))) + 1e-8);
+          if (opt === "adamw") d[i] += s.lam * x[i];
+        }
+      } else {
+        eta = s.etaMu; g = GD.grad(x);
+        v = [s.betaMu * v[0] + g[0], s.betaMu * v[1] + g[1]];
+        var u = [g[0] + s.betaMu * v[0], g[1] + s.betaMu * v[1]], n = Math.sqrt(u[0] * u[0] + u[1] * u[1]) + 1e-7;
+        d = [GD.ns(u[0] / n), GD.ns(u[1] / n)];
+      }
+      x = [x[0] - eta * d[0], x[1] - eta * d[1]];
+      xs.push(x);
+      if (Math.abs(x[0]) + Math.abs(x[1]) > 1e3) break;
+    }
+    return xs;
+  };
+  GD.until = function (xs) { for (var k = 0; k < xs.length; k++) if (GD.f(xs[k]) < 1e-3) return k; return -1; };
+
+  function lr(key, max, value) {
+    return { key: key, label: "Learning rate", min: max / 40, max: max, step: max / 40, value: value, show: function (v) { return "η = " + num(v, 3); } };
+  }
+  function mom(key, sym, value) {
+    return { key: key, label: "Momentum", min: 0, max: 0.95, step: 0.05, value: value, show: function (v) { return sym + " = " + num(v); } };
+  }
+  var STEPS = { key: "T", label: "Steps", min: 1, max: 80, step: 1, value: 50, show: function (v) { return "T = " + v; } };
+  GD.controls = {
+    "gradient-descent": [lr("etaGD", 0.09, 0.07), STEPS],
+    momentum: [lr("etaM", 0.06, 0.03), mom("betaM", "β", 0.8), STEPS],
+    nesterov: [lr("etaN", 0.06, 0.03), mom("betaN", "β", 0.8), STEPS],
+    rmsprop: [lr("etaR", 0.4, 0.15), { key: "rho", label: "Decay ρ", min: 0.5, max: 0.99, step: 0.01, value: 0.9, show: function (v) { return "ρ = " + num(v); } }, STEPS],
+    adam: [lr("etaA", 0.4, 0.15), mom("beta1", "β₁", 0.9), STEPS],
+    adamw: [lr("etaA", 0.4, 0.15), { key: "lam", label: "Weight decay", min: 0, max: 1.5, step: 0.05, value: 0.5, show: function (v) { return "λ = " + num(v); } }, STEPS],
+    muon: [lr("etaMu", 0.4, 0.15), mom("betaMu", "β", 0.9), STEPS]
+  };
+
   specs["gradient-descent"] = {
-    alt: "Contour lines of an elongated bowl with the zigzag path of gradient descent from a start point toward the minimum.",
+    alt: "Contour lines of a long, narrow valley with the path of the selected optimizer from a start point toward the minimum, and the previous optimizer's path for comparison.",
     box: { l: 12, r: 12, t: 12, b: 12 },
-    controls: [
-      { key: "eta", label: "Learning rate", min: 0.02, max: 0.36, step: 0.01, value: 0.25, show: function (v) { return "η = " + v.toFixed(2); } },
-      { key: "T", label: "Steps", min: 1, max: 40, step: 1, value: 12, show: function (v) { return "T = " + v; } }
-    ],
-    hint: "Tap empty space to move the start. Past η = 1/6 the path zigzags; past η = 1/3 it diverges.",
-    init: function (s) { s.x0 = [-2.4, 0.9]; },
+    story: true,
+    controls: function (s) { return GD.controls[s.ch] || []; },
+    hint: "Each chapter swaps in a new optimizer; the dashed path is the one it improves on. Tap empty space to move the start.",
+    init: function (s) {
+      s.ch = "momentum";
+      s.x0 = [-2.2, 1.5];
+      for (var c in GD.controls) GD.controls[c].forEach(function (o) { if (!(o.key in s)) s[o.key] = o.value; });
+    },
+    select: function (s, slug) {
+      if (!slug || slug === s.ch) return false;
+      s.ch = slug;
+      return true;
+    },
     render: function (s, p) {
-      var sc = this.sc = scale([-3.3, 3.3], [-2.155, 2.155], this.box), X = sc.x, Y = sc.y, k;
-      function f(v) { return (v[0] * v[0] + 6 * v[1] * v[1]) / 2; }
+      var sc = this.sc = scale([-2.8, 2.4], [-1.0, 2.395], this.box), X = sc.x, Y = sc.y, k;
+      var A = GD.A, ch = s.ch, opt = GD.names[ch] ? ch : null, ghost = opt && GD.ghost[opt];
+
+      var g0 = p.g(null);
+      p.line(g0, X(-2.8), Y(0), X(2.4), Y(0), "axisline");
+      p.line(g0, X(0), Y(-1), X(0), Y(2.395), "axisline");
 
       var go = p.g("objective", true);
-      [0.25, 1, 2.25, 4, 6.25, 9, 12.25, 16, 20.25].forEach(function (c) {
-        p.ellipse(go, X(0), Y(0), Math.sqrt(2 * c) * sc.sx, Math.sqrt(c / 3) * sc.sy, "contour");
+      [0.05, 0.25, 0.6, 1.1, 1.8, 2.7, 3.8, 5.1, 6.6].forEach(function (c) {
+        p.ellipse(go, X(A[0]), Y(A[1]), Math.sqrt(2 * c) * sc.sx, Math.sqrt(2 * c / GD.K) * sc.sy, "contour");
       });
+      p.line(go, X(A[0]) - 7, Y(A[1]), X(A[0]) + 7, Y(A[1]), "curve");
+      p.line(go, X(A[0]), Y(A[1]) - 7, X(A[0]), Y(A[1]) + 7, "curve");
+      p.circle(go, X(A[0]), Y(A[1]), 14, "hitc");
+      p.label("xs", "\\mathbf{x}^\\star", X(A[0]) + 6, Y(A[1]) - 4, "ne", "objective");
 
-      var gm = p.g("minimizer");
-      p.line(gm, X(0) - 7, Y(0), X(0) + 7, Y(0), "curve");
-      p.line(gm, X(0), Y(0) - 7, X(0), Y(0) + 7, "curve");
-      p.circle(gm, X(0), Y(0), 14, "hitc");
-      p.label("xs", "\\mathbf{x}^\\star", X(0) + 6, Y(0) + 4, "se", "minimizer");
-
-      var xs = [s.x0];
-      for (k = 0; k < s.T; k++) {
-        var v = xs[k];
-        if (Math.abs(v[0]) + Math.abs(v[1]) > 1e3) break;
-        xs.push([v[0] - s.eta * v[0], v[1] - s.eta * 6 * v[1]]);
+      if (ch === "gradient") {
+        var gf = p.g("gradient");
+        for (var a = -2.5; a <= 2.3; a += 0.6) for (var b = -0.7; b <= 2.3; b += 0.5) {
+          var gr = GD.grad([a, b]), gn = Math.sqrt(gr[0] * gr[0] + gr[1] * gr[1]);
+          if (gn < 1e-6) continue;
+          var len = 0.28 * Math.min(1, Math.sqrt(gn / 6));
+          p.arrow(gf, X(a), Y(b), X(a - len * gr[0] / gn), Y(b - len * gr[1] / gn), "c-muted thin");
+        }
+        var g = GD.grad(s.x0), gl = Math.sqrt(g[0] * g[0] + g[1] * g[1]);
+        if (gl > 1e-6) {
+          var tip = [s.x0[0] + 0.7 * g[0] / gl, s.x0[1] + 0.7 * g[1] / gl];
+          p.arrow(gf, X(s.x0[0]), Y(s.x0[1]), X(tip[0]), Y(tip[1]), "c-warm");
+          p.line(gf, X(s.x0[0]), Y(s.x0[1]), X(tip[0]), Y(tip[1]), "hit");
+          p.label("grad", "\\nabla f(\\mathbf{x}_0)", X(tip[0]), Y(tip[1]), X(tip[0]) < W / 2 ? "e" : "w", "gradient");
+        }
       }
-      var pts = xs.map(function (v) { return [X(v[0]), Y(v[1])]; });
-      var gs = p.g("step", true);
-      p.poly(gs, pts, "curve c-accent");
-      p.poly(gs, pts, "hit");
-      var gi = p.g("iterate", true);
-      for (k = 1; k < pts.length; k++) p.circle(gi, pts[k][0], pts[k][1], 4, "dot c-accent");
-      var last = xs[xs.length - 1];
-      if (Math.abs(last[0]) < 3.2 && Math.abs(last[1]) < 2.05 && xs.length > 1)
-        p.label("xT", "\\mathbf{x}_T", pts[pts.length - 1][0], pts[pts.length - 1][1], "ne", "iterate");
 
-      var g = [s.x0[0], 6 * s.x0[1]], gl = Math.sqrt(g[0] * g[0] + g[1] * g[1]);
-      if (gl > 1e-6) {
-        var tip = [s.x0[0] + 0.7 * g[0] / gl, s.x0[1] + 0.7 * g[1] / gl];
-        var gg = p.g("gradient");
-        p.arrow(gg, X(s.x0[0]), Y(s.x0[1]), X(tip[0]), Y(tip[1]), "c-warm");
-        p.line(gg, X(s.x0[0]), Y(s.x0[1]), X(tip[0]), Y(tip[1]), "hit");
-        p.label("grad", "\\nabla f(\\mathbf{x}_0)", X(tip[0]), Y(tip[1]), X(tip[0]) < W / 2 ? "e" : "w", "gradient");
+      if (ch === "adamw") {
+        var gz = p.g("adamw");
+        p.circle(gz, X(0), Y(0), 4, "dot c-muted");
+        p.label("zero", "\\mathbf{0}", X(0) - 4, Y(0) + 4, "sw", "adamw");
       }
-      var g0 = p.g("start");
-      p.circle(g0, X(s.x0[0]), Y(s.x0[1]), 6, "dot");
-      p.circle(g0, X(s.x0[0]), Y(s.x0[1]), 14, "hitc");
-      p.label("x0", "\\mathbf{x}_0", X(s.x0[0]), Y(s.x0[1]) + (g[1] > 0 ? 8 : -8), g[1] > 0 ? "s" : "n", "start");
 
-      var fate = s.eta < 1 / 6 ? "goes straight down the valley" :
-        s.eta < 1 / 3 ? "zigzags across the valley but converges" : "diverges, since η > 2/L = 1/3";
-      return "η = " + num(s.eta) + " &nbsp;·&nbsp; <i>f</i>(<b>x</b><sub><i>T</i></sub>) = " +
-        (f(last) < 1e4 ? num(f(last), 4) : "∞") + " &nbsp;·&nbsp; the path " + fate;
+      function trail(name, xs, main) {
+        var pts = xs.map(function (v) { return [X(v[0]), Y(v[1])]; }), gp = p.g(name, true);
+        p.poly(gp, pts, main ? "curve c-accent" : "curve thin c-muted dash");
+        p.poly(gp, pts, "hit");
+        if (main) for (k = 1; k < pts.length; k++) p.circle(gp, pts[k][0], pts[k][1], 3.5, "dot c-accent");
+        var e = xs[xs.length - 1];
+        if (main && e[0] > -2.7 && e[0] < 2.3 && e[1] > -0.9 && e[1] < 2.3 && xs.length > 1)
+          p.label("xT", "\\mathbf{x}_T", pts[pts.length - 1][0], pts[pts.length - 1][1] + 6, "s", name);
+      }
+      var gxs = ghost && GD.run(ghost, s), xs = opt && GD.run(opt, s);
+      if (gxs) {
+        trail(ghost, gxs, false);
+        var mid = gxs[Math.min(gxs.length - 1, 3)];
+        p.label("ghost-" + ghost, GD.tex[ghost], X(mid[0]), Y(mid[1]) - 6, "n", ghost);
+      }
+      if (xs) trail(opt, xs, true);
+
+      var gs = p.g(null);
+      p.circle(gs, X(s.x0[0]), Y(s.x0[1]), 6, "dot");
+      p.label("x0", "\\mathbf{x}_0", X(s.x0[0]) - 6, Y(s.x0[1]) - 6, "nw");
+
+      function fate(name, run) {
+        var e = run[run.length - 1], hit = GD.until(run), fx = GD.f(e);
+        return "<b>" + GD.names[name] + "</b>: <i>f</i>(<b>x</b><sub><i>T</i></sub>) = " + (fx < 1e4 ? num(fx, 4) : "∞") +
+          (hit >= 0 ? ", within 0.001 of the minimum after " + hit + " steps" : fx < 1e4 ? ", not within 0.001 in " + s.T + " steps" : ", diverged");
+      }
+      if (!opt) {
+        var gx = GD.grad(s.x0);
+        return "<b>x</b><sub>0</sub> = (" + num(s.x0[0]) + ", " + num(s.x0[1]) + ") &nbsp;·&nbsp; <i>f</i>(<b>x</b><sub>0</sub>) = " + num(GD.f(s.x0), 3) +
+          " &nbsp;·&nbsp; ∇<i>f</i>(<b>x</b><sub>0</sub>) = (" + num(gx[0]) + ", " + num(gx[1]) + ") &nbsp;·&nbsp; curvatures 1 and 25";
+      }
+      return fate(opt, xs) + (gxs ? "<br><span class=\"muted\">vs " + fate(ghost, gxs) + "</span>" : "");
     },
     click: function (s, pt) {
       var sc = this.sc;
-      s.x0 = [clamp(sc.ix(pt.x), -3.2, 3.2), clamp(sc.iy(pt.y), -2.05, 2.05)];
+      s.x0 = [clamp(sc.ix(pt.x), -2.7, 2.3), clamp(sc.iy(pt.y), -0.9, 2.3)];
       return true;
     }
   };
