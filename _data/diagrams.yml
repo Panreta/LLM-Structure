@@ -42,7 +42,7 @@
   description: "Why random vectors have length about 1 and are nearly orthogonal, how that gives the Johnson–Lindenstrauss lemma, and why a high-dimensional ball keeps its mass on the shell."
 
 - id: grpo
-  title: GRPO
+  title: Group Relative Policy Optimization
   labels: [Large Language Model, Optimization]
   figure: grpo
   description: "The objective behind DeepSeek-R1, built step by step: Markov decision processes, the trust-region problem, TRPO, PPO, and what GRPO changes."
@@ -64,3 +64,9 @@
   labels: [Probability, Optimization]
   figure: bregman-kl
   description: "The gap between a convex function and its tangent: with negative entropy it becomes the KL divergence, then cross-entropy and the limit of optimal coding."
+
+- id: normal
+  title: Normal distribution
+  labels: [Probability]
+  figure: normal
+  description: "The bell curve, then ellipses in 2-D and a fog ball in 3-D that is dense inside and sparse outside, how to picture it in any dimension, and the quantum oscillator whose ground state is exactly Gaussian."

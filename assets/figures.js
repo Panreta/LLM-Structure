@@ -2208,5 +2208,200 @@
     }
   });
 
+  // The normal distribution from 1-D to 3-D, then any n, then quantum mechanics.
+  var ND = {};
+  ND.phi = function (x, m, s) { return Math.exp(-(x - m) * (x - m) / (2 * s * s)) / (s * Math.sqrt(2 * Math.PI)); };
+  ND.cloud = function () {
+    if (ND.pts) return ND.pts;
+    var rnd = HD.rng(21), pts = [];
+    for (var i = 0; i < 4000; i++) { var v = [rnd(), rnd(), rnd()]; pts.push({ v: v, r: Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]) }); }
+    return (ND.pts = pts);
+  };
+  ND.flat = function () {
+    if (ND.pts2) return ND.pts2;
+    var rnd = HD.rng(33), pts = [];
+    for (var i = 0; i < 1200; i++) pts.push([rnd(), rnd()]);
+    return (ND.pts2 = pts);
+  };
+  // P(‖X‖ ≤ r) for X ~ N(0, I_n): the chi distribution's CDF.
+  ND.inside = function (n, r) { return HD.gammaP(n / 2, r * r / 2); };
+  ND.hermite = function (n, y) { var a = 1, b = 2 * y; if (!n) return a; for (var k = 1; k < n; k++) { var c = 2 * y * b - 2 * k * a; a = b; b = c; } return b; };
+  ND.psi = function (n, x, w) {
+    var f = 1; for (var k = 2; k <= n; k++) f *= k;
+    return Math.pow(w / Math.PI, 0.25) / Math.sqrt(Math.pow(2, n) * f) * ND.hermite(n, Math.sqrt(w) * x) * Math.exp(-w * x * x / 2);
+  };
+  ND.controls = {
+    "one-dimension": [
+      { key: "mu", label: "Mean", min: -2, max: 2, step: 0.05, value: 0, show: function (v) { return "μ = " + num(v); } },
+      { key: "sd", label: "Std. deviation", min: 0.4, max: 2, step: 0.05, value: 1, show: function (v) { return "σ = " + num(v); } }
+    ],
+    "two-dimension": [
+      { key: "s1", label: "σ₁", min: 0.3, max: 1.2, step: 0.05, value: 1, show: function (v) { return "σ₁ = " + num(v); } },
+      { key: "s2", label: "σ₂", min: 0.3, max: 1.2, step: 0.05, value: 0.6, show: function (v) { return "σ₂ = " + num(v); } },
+      { key: "rho", label: "Correlation", min: -0.9, max: 0.9, step: 0.05, value: 0.5, show: function (v) { return "ρ = " + num(v); } }
+    ],
+    "three-dimension": [{ key: "npts", label: "Samples", min: 500, max: 4000, step: 100, value: 3000, show: function (v) { return v + " points"; } }],
+    "n-dimension": [{ key: "nd", label: "Dimension", min: 1, max: 100, step: 1, value: 3, show: function (v) { return "n = " + v; } }],
+    quantum: [{ key: "om", label: "Trap frequency", min: 0.5, max: 2, step: 0.05, value: 1, show: function (v) { return "ω = " + num(v); } }]
+  };
+  ND.wide = { "two-dimension": 1, "three-dimension": 1 };
+
+  specs.normal = {
+    alt: "Figures for the normal distribution: the bell curve with its 68–95–99.7 bands, correlated samples with elliptical contours in the plane, a 3-D cloud of samples that is dense in the middle and sparse toward the outside, the radius distribution in n dimensions, and the ground state of the quantum harmonic oscillator.",
+    story: true,
+    controls: function (s) { return ND.controls[s.ch] || []; },
+    init: function (s, thumb) {
+      s.ch = thumb ? "three-dimension" : "one-dimension";
+      for (var c in ND.controls) ND.controls[c].forEach(function (o) { s[o.key] = o.value; });
+      this.box = thumb ? { l: 12, r: 12, t: 12, b: 12 } : BOX;
+    },
+    select: function (s, slug) {
+      if (!slug || slug === s.ch || !ND.controls[slug]) return false;
+      s.ch = slug;
+      this.box = ND.wide[slug] ? { l: 12, r: 12, t: 12, b: 12 } : BOX;
+      return true;
+    },
+    render: function (s, p) { return this[s.ch](s, p); },
+    describe: byBlock({
+      "one-dimension": "Blue: the normal density φ(<i>x</i>) with mean μ and standard deviation σ. The shaded bands are μ ± σ, μ ± 2σ and μ ± 3σ, darker for the inner ones, with the share of probability each contains.",
+      "two-dimension": "Gray dots: 1200 samples from a 2-D normal with covariance Σ. Blue ellipses: the level sets where the density has dropped by e<sup>−1/2</sup>, e<sup>−2</sup> and e<sup>−9/2</sup> (Mahalanobis radius 1, 2, 3). Brown arrows: the principal axes, the eigenvectors of Σ scaled by √λ.",
+      "three-dimension": "A cloud of samples from the 3-D standard normal, seen from one side. Blue points lie within 1σ of the center, black within 2σ, brown beyond. The dashed circles are the spheres of radius 1, 2 and 3σ. The core is dense; the outer shells hold many points but spread them over much more volume.",
+      "n-dimension": "Blue: the density of the distance <i>r</i> = ‖<i>X</i>‖ from the center for <i>X</i> ~ N(0, <i>I<sub>n</sub></i>), the chi distribution. Dashed gray: the density per unit volume at distance <i>r</i>, which is always largest at the center. Their product with the sphere's area gives the blue curve.",
+      quantum: "Black: the potential <i>V</i>(<i>x</i>) = ½<i>m</i>ω²<i>x</i>² of a harmonic trap. Gray lines: the energy levels <i>E<sub>n</sub></i> = (<i>n</i> + ½)ħω, with the wavefunctions ψ<sub><i>n</i></sub> drawn on them. Blue: the ground-state probability density |ψ<sub>0</sub>|², a normal distribution (units ħ = <i>m</i> = 1)."
+    }),
+
+    "one-dimension": function (s, p) {
+      var m = s.mu, sd = s.sd, sc = scale([-5.2, 5.4], [0, 1.15]), X = sc.x, Y = sc.y, i, g = p.g(null, true);
+      [[3, 12], [2, 22], [1, 34]].forEach(function (b) {
+        var pts = [[X(m - b[0] * sd), Y(0)]];
+        for (i = 0; i <= 120; i++) { var x = m - b[0] * sd + 2 * b[0] * sd * i / 120; pts.push([X(x), Y(ND.phi(x, m, sd))]); }
+        pts.push([X(m + b[0] * sd), Y(0)]);
+        var e = p.poly(g, pts, "cell", true);
+        e.style.fill = "color-mix(in srgb, var(--focus) " + b[1] + "%, transparent)";
+      });
+      var c = [];
+      for (i = 0; i <= 300; i++) { var x2 = -5.2 + 10.6 * i / 300; c.push([X(x2), Y(ND.phi(x2, m, sd))]); }
+      p.poly(g, c, "curve c-accent");
+      p.axes(sc, { xticks: [-4, -2, 0, 2, 4], xlabel: "x" });
+      p.label("od-f", "\\varphi(x) = \\frac{1}{\\sigma\\sqrt{2\\pi}}\\, e^{-(x-\\mu)^2 / 2\\sigma^2}", X(m + 1.3 * sd), Y(ND.phi(m + 1.3 * sd, m, sd)) - 4, "ne");
+      p.label("od-1", "\\mu \\pm \\sigma: 68.3\\%", X(-5), Y(1.05), "se");
+      p.label("od-2", "\\mu \\pm 2\\sigma: 95.4\\%", X(-5), Y(0.93), "se");
+      p.label("od-3", "\\mu \\pm 3\\sigma: 99.7\\%", X(-5), Y(0.81), "se");
+      return "peak height 1/(σ√(2π)) = " + num(ND.phi(m, m, sd), 3) + " at <i>x</i> = μ = " + num(m) + " &nbsp;·&nbsp; inflection points at μ ± σ = " + num(m - sd) + ", " + num(m + sd) + " &nbsp;·&nbsp; total area 1";
+    },
+
+    "two-dimension": function (s, p) {
+      var sc = this.sc = scale([-3.3, 3.3], [-2.155, 2.155], this.box), X = sc.x, Y = sc.y, a = s.s1, b = s.s2, r = s.rho, i;
+      var S = [[a * a, r * a * b], [r * a * b, b * b]], tr = S[0][0] + S[1][1], det = S[0][0] * S[1][1] - S[0][1] * S[0][1];
+      var l1 = tr / 2 + Math.sqrt(tr * tr / 4 - det), l2 = tr / 2 - Math.sqrt(tr * tr / 4 - det);
+      var e1 = Math.abs(S[0][1]) > 1e-12 ? [l1 - S[1][1], S[0][1]] : (S[0][0] >= S[1][1] ? [1, 0] : [0, 1]), n1 = Math.sqrt(e1[0] * e1[0] + e1[1] * e1[1]);
+      e1 = [e1[0] / n1, e1[1] / n1];
+      var e2 = [-e1[1], e1[0]], g0 = p.g(null);
+      p.line(g0, X(-3.3), Y(0), X(3.3), Y(0), "axisline");
+      p.line(g0, X(0), Y(-2.155), X(0), Y(2.155), "axisline");
+      var gp = p.g(null, true), c = Math.sqrt(1 - r * r);
+      ND.flat().forEach(function (z) {
+        var x = a * z[0], y = b * (r * z[0] + c * z[1]);
+        var e = p.circle(gp, X(x), Y(y), 1.6, "pt");
+        e.style.setProperty("--c", "var(--muted)");
+      });
+      [1, 2, 3].forEach(function (k) {
+        var pts = [];
+        for (i = 0; i <= 120; i++) {
+          var t = i / 120 * 2 * Math.PI, u = k * Math.sqrt(l1) * Math.cos(t), v = k * Math.sqrt(l2) * Math.sin(t);
+          pts.push([X(u * e1[0] + v * e2[0]), Y(u * e1[1] + v * e2[1])]);
+        }
+        p.poly(gp, pts, "curve " + (k === 1 ? "" : "thin ") + "c-accent", true);
+      });
+      var ga = p.g(null);
+      p.arrow(ga, X(0), Y(0), X(Math.sqrt(l1) * e1[0]), Y(Math.sqrt(l1) * e1[1]), "c-warm");
+      p.arrow(ga, X(0), Y(0), X(Math.sqrt(l2) * e2[0]), Y(Math.sqrt(l2) * e2[1]), "c-warm");
+      p.label("td-f", "p(\\mathbf{x}) = \\frac{1}{2\\pi\\sqrt{\\det\\Sigma}}\\, e^{-\\frac12 \\mathbf{x}^\\top \\Sigma^{-1} \\mathbf{x}}", X(-3.15), Y(2.05), "se");
+      p.label("td-e", "\\mathbf{x}^\\top\\Sigma^{-1}\\mathbf{x} = 1, 4, 9", X(3.15), Y(-2.05), "nw");
+      return "Σ = [[" + num(S[0][0]) + ", " + num(S[0][1]) + "], [" + num(S[1][0]) + ", " + num(S[1][1]) + "]] &nbsp;·&nbsp; eigenvalues " + num(l1, 3) + ", " + num(l2, 3) +
+        " &nbsp;·&nbsp; the ellipses hold " + num(100 * ND.inside(2, 1), 1) + "%, " + num(100 * ND.inside(2, 2), 1) + "% and " + num(100 * ND.inside(2, 3), 1) + "% of the probability";
+    },
+
+    "three-dimension": function (s, p) {
+      var sc = scale([-4.6, 4.6], [-3.003, 3.003], this.box), X = sc.x, Y = sc.y, pts = ND.cloud().slice(0, s.npts), gb = p.g(null, true);
+      [[3, 5], [2, 7], [1, 12]].forEach(function (b) {
+        var e = p.circle(gb, X(0), Y(0), b[0] * sc.sx, "cell");
+        e.style.fill = "color-mix(in srgb, var(--focus) " + b[1] + "%, transparent)";
+      });
+      var g = p.g(null, true);
+      var c = Math.cos(0.5), sn = Math.sin(0.5), ct = Math.cos(0.35), st = Math.sin(0.35);
+      var order = pts.map(function (q) {
+        var x = c * q.v[0] + sn * q.v[2], z = -sn * q.v[0] + c * q.v[2], y = ct * q.v[1] - st * z;
+        return { x: x, y: y, r: q.r };
+      }).sort(function (u, v) { return v.r - u.r; });
+      order.forEach(function (q) {
+        var e = p.circle(g, X(q.x), Y(q.y), q.r <= 1 ? 1.9 : 1.6, "pt");
+        e.style.setProperty("--c", q.r <= 1 ? "var(--focus)" : q.r <= 2 ? "var(--ink)" : "var(--warm)");
+        if (q.r > 1) e.style.fillOpacity = q.r <= 2 ? "0.35" : "0.6";
+      });
+      var gs = p.g(null), cnt = [0, 0, 0, 0];
+      pts.forEach(function (q) { cnt[q.r <= 1 ? 0 : q.r <= 2 ? 1 : q.r <= 3 ? 2 : 3]++; });
+      [1, 2, 3].forEach(function (k) {
+        p.circle(gs, X(0), Y(0), k * sc.sx, "curve thin c-muted dash");
+        p.label("th-" + k, "r = " + k + "\\sigma", X(0) + k * sc.sx * 0.72 + 4, Y(0) - k * sc.sx * 0.72 - 2, "ne");
+      });
+      p.label("th-f", "p(\\mathbf{x}) = (2\\pi)^{-3/2} e^{-\\lVert\\mathbf{x}\\rVert^2/2}", X(-4.45), Y(2.9), "se");
+      var vol = function (r) { return 4 / 3 * Math.PI * r * r * r; }, N = pts.length;
+      var dens = [cnt[0] / N / vol(1), cnt[1] / N / (vol(2) - vol(1)), cnt[2] / N / (vol(3) - vol(2))];
+      return "points in the core <i>r</i> ≤ 1: " + num(100 * cnt[0] / N, 1) + "% (theory " + num(100 * ND.inside(3, 1), 1) + "%), shell 1–2: " + num(100 * cnt[1] / N, 1) + "%, shell 2–3: " + num(100 * cnt[2] / N, 1) + "%, beyond: " + num(100 * cnt[3] / N, 1) + "%" +
+        " &nbsp;·&nbsp; points per unit volume: " + num(100 * dens[0], 2) + "%, " + num(100 * dens[1], 2) + "%, " + num(100 * dens[2], 3) + "%: the middle shell holds the most points, the core is the densest";
+    },
+
+    "n-dimension": function (s, p) {
+      var n = s.nd, lc = (1 - n / 2) * Math.log(2) - HD.lgamma(n / 2), i, cv = [], dv = [], top = 0;
+      var f = function (r) { return r <= 0 ? (n === 1 ? Math.exp(lc) : 0) : Math.exp(lc + (n - 1) * Math.log(r) - r * r / 2); };
+      var xmax = Math.max(4.5, Math.sqrt(n) + 4);
+      for (i = 0; i <= 400; i++) { var r = xmax * i / 400; top = Math.max(top, f(r)); }
+      var sc = scale([-xmax * 0.04, xmax * 1.03], [0, top * 1.25]), X = sc.x, Y = sc.y, g = p.g(null, true);
+      for (i = 0; i <= 400; i++) {
+        var r2 = xmax * i / 400;
+        cv.push([X(r2), Y(f(r2))]);
+        dv.push([X(r2), Y(top * Math.exp(-r2 * r2 / 2))]);
+      }
+      p.poly(g, [[X(0), Y(0)]].concat(cv, [[X(xmax), Y(0)]]), "fill c-accent", true);
+      p.poly(g, dv, "curve thin c-muted dash");
+      p.poly(g, cv, "curve c-accent");
+      var mode = Math.sqrt(Math.max(n - 1, 0));
+      p.line(g, X(mode), Y(0), X(mode), Y(f(mode)), "curve thin c-warm");
+      p.axes(sc, { xlabel: "r = \\lVert X \\rVert" });
+      p.label("nd-f", "p_n(r) = \\frac{r^{n-1} e^{-r^2/2}}{2^{n/2-1}\\Gamma(n/2)}", X(mode + 1.1), Y(f(mode + 1.1)), "e");
+      p.label("nd-d", "e^{-r^2/2} \\ (\\text{density per volume, scaled})", X(0.35), Y(top * 1.17), "se");
+      p.label("nd-m", "\\sqrt{n-1}", X(mode), Y(0) + 6, "s");
+      return "most likely distance √(<i>n</i> − 1) = " + num(mode, 2) + " &nbsp;·&nbsp; inside radius 1: " + sci(Math.max(ND.inside(n, 1), 1e-300)) + " &nbsp;·&nbsp; inside radius √<i>n</i> ± 1: " +
+        num(100 * (ND.inside(n, Math.sqrt(n) + 1) - ND.inside(n, Math.max(Math.sqrt(n) - 1, 0))), 1) + "% &nbsp;·&nbsp; in high dimensions the samples live on a thin shell, while the center stays the densest point";
+    },
+
+    quantum: function (s, p) {
+      var w = s.om, sc = scale([-4.6, 4.6], [0, 4.6 * w]), X = sc.x, Y = sc.y, i, n, g = p.g(null, true);
+      var V = []; for (i = 0; i <= 200; i++) { var x = -4.6 + 9.2 * i / 200; V.push([X(x), Y(Math.min(0.5 * w * w * x * x, 4.7 * w))]); }
+      p.axes(sc, { xticks: [-4, -2, 2, 4], xlabel: "x" });
+      var k = 0.42 * w / Math.pow(w / Math.PI, 0.25);
+      for (n = 3; n >= 0; n--) {
+        var E = (n + 0.5) * w, tp = Math.sqrt(2 * E) / w;
+        p.line(g, X(-tp), Y(E), X(tp), Y(E), "curve thin c-muted");
+        var ps = [];
+        for (i = 0; i <= 240; i++) { var x2 = -4.6 + 9.2 * i / 240; ps.push([X(x2), Y(E + k * ND.psi(n, x2, w))]); }
+        if (n === 0) {
+          var d = [];
+          for (i = 0; i <= 240; i++) { var x3 = -4.6 + 9.2 * i / 240, q = ND.psi(0, x3, w); d.push([X(x3), Y(E + 1.2 * k * q * q / Math.pow(w / Math.PI, 0.25))]); }
+          p.poly(g, [[X(-4.6), Y(E)]].concat(d, [[X(4.6), Y(E)]]), "fill c-accent", true);
+          p.poly(g, d, "curve c-accent");
+        } else p.poly(g, ps, "curve thin");
+        p.label("qm-E" + n, "E_" + n + " = \\tfrac{" + (2 * n + 1) + "}{2}\\hbar\\omega", X(4.5), Y(E), "w");
+      }
+      p.poly(g, V, "curve");
+      p.label("qm-V", "V(x) = \\tfrac12 m\\omega^2 x^2", X(-3.9), Y(Math.min(0.5 * w * w * 3.9 * 3.9, 4.3 * w)), "e");
+      p.label("qm-p", "\\lvert\\psi_0\\rvert^2 = \\mathcal{N}\\!\\left(0, \\tfrac{\\hbar}{2m\\omega}\\right)", X(0) + 18, Y(0.5 * w + 1.2 * k * Math.sqrt(w / Math.PI) / Math.pow(w / Math.PI, 0.25)) - 2, "ne");
+      var sx = Math.sqrt(1 / (2 * w)), sp = Math.sqrt(w / 2);
+      return "ground state: σ<sub><i>x</i></sub> = √(ħ/2<i>m</i>ω) = " + num(sx, 3) + ", σ<sub><i>p</i></sub> = √(<i>m</i>ħω/2) = " + num(sp, 3) + ", product " + num(sx * sp, 3) +
+        " = ħ/2: the minimum Heisenberg allows &nbsp;·&nbsp; a stiffer trap (larger ω) squeezes the Gaussian in <i>x</i> and widens it in <i>p</i>";
+    }
+  };
+
   window.Figures = { specs: specs, mount: mount };
 })();
