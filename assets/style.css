@@ -56,6 +56,7 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:"STIX Two Tex
 .fig.draggable{touch-action:none}
 .fig.thumb *{vector-effect:non-scaling-stroke}
 .fig.thumb .dot{stroke:none}
+.fig .big{font-family:Georgia,"Times New Roman",serif;font-style:italic;font-weight:600;fill:var(--c,var(--ink))}
 .c-accent{--c:var(--focus)} .c-warm{--c:var(--warm)} .c-muted{--c:var(--muted)}
 .fig .curve,.fig .vec{fill:none;stroke:var(--c,var(--ink));stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round}
 .fig .head{fill:var(--c,var(--ink));stroke:none}

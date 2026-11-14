@@ -93,6 +93,12 @@
     this.line(g, x1, y1, bx + ux, by + uy, "vec " + (cls || ""));
     this.poly(g, [[x2, y2], [bx - uy * w, by + ux * w], [bx + uy * w, by - ux * w]], "head " + (cls || ""), true);
   };
+  // Large SVG text, drawn even in thumbnails (for covers).
+  P.big = function (g, x, y, s, size, cls, anchor) {
+    var t = mk("text", { x: x, y: y, "class": "big " + (cls || ""), "text-anchor": anchor || "middle", "font-size": size }, g);
+    t.textContent = s;
+    return t;
+  };
   P.text = function (g, x, y, s, anchor) {
     if (this.thumb) return;
     mk("text", { x: x, y: y, "class": "tick-text", "text-anchor": anchor || "middle" }, g).textContent = s;
@@ -173,7 +179,7 @@
       var cp = mk("clipPath", { id: id }, mk("defs", {}, svg));
       mk("rect", { x: box.l, y: box.t, width: W - box.l - box.r, height: H - box.t - box.b }, cp);
       var p = new Painter(svg, labels, opts, id);
-      var out = spec.render.call(spec, state, p) || "";
+      var out = (opts.thumb && spec.cover ? spec.cover.call(spec, p) : spec.render.call(spec, state, p)) || "";
       Array.prototype.forEach.call(labels.children, function (e) {
         if (!p.seen[e.getAttribute("data-key")]) e.hidden = true;
       });
@@ -1836,6 +1842,27 @@
   };
 
   specs["bregman-kl"] = {
+    // Card cover: a two-bump p, the best single Gaussian q, and KL(p ‖ q).
+    cover: function (p) {
+      var N = function (x, m, sd) { return Math.exp(-(x - m) * (x - m) / (2 * sd * sd)) / (sd * Math.sqrt(2 * Math.PI)); };
+      var P = function (x) { return 0.6 * N(x, -1.3, 0.5) + 0.4 * N(x, 1.4, 0.65); };
+      var mu = 0.6 * -1.3 + 0.4 * 1.4, v = 0.6 * (0.25 + 1.69) + 0.4 * (0.4225 + 1.96) - mu * mu, sd = Math.sqrt(v);
+      var Q = function (x) { return N(x, mu, sd); };
+      var sc = scale([-3.6, 3.9], [0, 0.62], { l: 20, r: 20, t: 80, b: 26 }), X = sc.x, Y = sc.y, i, pp = [], qq = [], kl = 0, dx = 7.5 / 600;
+      for (i = 0; i <= 600; i++) {
+        var x = -3.6 + i * dx;
+        pp.push([X(x), Y(P(x))]); qq.push([X(x), Y(Q(x))]);
+        if (P(x) > 1e-12) kl += P(x) * Math.log(P(x) / Q(x)) * dx;
+      }
+      var g = p.g(null);
+      p.line(g, X(-3.6), Y(0), X(3.9), Y(0), "axisline");
+      p.poly(g, [[X(-3.6), Y(0)]].concat(pp, [[X(3.9), Y(0)]]), "fill c-accent", true);
+      p.poly(g, pp, "curve c-accent");
+      p.poly(g, qq, "curve c-warm dash");
+      p.big(g, X(-1.3), Y(P(-1.3)) - 14, "p", 64, "c-accent");
+      p.big(g, X(mu) + 6, Y(Q(mu)) - 14, "q", 64, "c-warm");
+      p.big(g, 300, 58, "KL(p \u2016 q) = " + kl.toFixed(2), 50);
+    },
     alt: "Figures for Bregman divergence: a convex function with a tangent line and the gap between them, negative entropy on two outcomes, KL divergence as a tangent gap, cross-entropy as entropy plus KL, tangents under a convex curve, and code lengths for a four-symbol source.",
     story: true,
     controls: function (s) { return BR.controls[s.ch] || []; },
