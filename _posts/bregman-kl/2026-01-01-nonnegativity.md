@@ -1,6 +1,6 @@
 ---
 title: Nonnegativity
-order: 5
+order: 6
 tex: 'B_\varphi(p, q) = \varphi(p) - \varphi(q) - \langle \nabla\varphi(q),\, p - q \rangle \ge 0'
 ---
 Since $$\varphi$$ is convex, its Bregman divergence is never negative, and it is zero only at $$p = q$$ when $$\varphi$$ is strictly convex. Two ways to see it:

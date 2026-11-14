@@ -1830,11 +1830,50 @@
   BR.dne = function (t) { return Math.log(t / (1 - t)); };
   BR.kl = function (p, q) { return p * Math.log(p / q) + (1 - p) * Math.log((1 - p) / (1 - q)); };
   BR.ce = function (p, q) { return -p * Math.log(q) - (1 - p) * Math.log(1 - q); };
+  // P: p(x) = ¾(1 − x²) on [−1, 1]. Q: a jagged density on [−1.7, 1.7],
+  // positive wherever p is (so P ≪ Q), optionally with a hole inside [−1, 1].
+  BR.p = function (x) { return Math.abs(x) <= 1 ? 0.75 * (1 - x * x) : 0; };
+  BR.makeQ = function (seed, hole) {
+    var u = RL.uniform(seed * 7919 + 13), bumps = [], i, Z = 0, N = 680, a = -1.7, b = 1.7, dx = (b - a) / N;
+    for (i = 0; i < 9; i++) bumps.push([a + 0.15 + (b - a - 0.3) * u(), 0.04 + 0.12 * u(), 0.3 + u()]);
+    var raw = function (x) {
+      if (x < a || x > b || (hole && x > 0.25 && x < 0.55)) return 0;
+      var v = 0.12;
+      bumps.forEach(function (m) { v += m[2] * Math.exp(-(x - m[0]) * (x - m[0]) / (2 * m[1] * m[1])); });
+      return v;
+    };
+    for (i = 0; i < N; i++) Z += raw(a + (i + 0.5) * dx) * dx;
+    return function (x) { return raw(x) / Z; };
+  };
+  BR.klPQ = function (q) {
+    var s = 0, N = 2000, dx = 2 / N;
+    for (var i = 0; i < N; i++) {
+      var x = -1 + (i + 0.5) * dx, pv = BR.p(x), qv = q(x);
+      if (pv > 0 && qv <= 0) return Infinity;
+      if (pv > 0) s += pv * Math.log(pv / qv) * dx;
+    }
+    return s;
+  };
+  // Draw p and q over [−2, 2]; returns the scale.
+  BR.pq = function (p, q, box, opts) {
+    var sc = scale([-2.05, 2.05], [opts && opts.low ? -0.36 : 0, 1.45], box), X = sc.x, Y = sc.y, i, pp = [], qq = [], g = p.g(null, true);
+    for (i = 0; i <= 820; i++) {
+      var x = -2.05 + 4.1 * i / 820;
+      pp.push([X(x), Y(BR.p(x))]);
+      qq.push([X(x), Y(Math.min(q(x), 1.42))]);
+    }
+    p.poly(g, [[X(-1), Y(0)]].concat(pp.filter(function (pt, k) { var x = -2.05 + 4.1 * k / 820; return x >= -1 && x <= 1; }), [[X(1), Y(0)]]), "fill c-accent", true);
+    p.poly(g, qq, "curve c-warm");
+    p.poly(g, pp, "curve c-accent");
+    p.line(g, X(-2.05), Y(0), X(2.05), Y(0), "axisline");
+    return sc;
+  };
   BR.desc = function (t) { return "<span class=\"fig-desc\">" + t + "</span>"; };
   function prob(key, label, value) { return { key: key, label: label, min: 0.02, max: 0.98, step: 0.01, value: value, show: function (v) { return key.charAt(0) + " = " + num(v); } }; }
   BR.controls = {
     bregman: [{ key: "phi", label: "Convex φ", type: "choice", value: "xlogx", options: [["sq", "x²"], ["xlogx", "x log x"], ["exp", "eˣ"]] }],
     "negative-entropy": [prob("t1", "Distribution", 0.25)],
+    "absolute-continuity": [{ key: "ac", label: "Case", type: "choice", value: "covers", options: [["covers", "P ≪ Q"], ["hole", "Q has a hole"], ["bern", "Bernoulli"]] }],
     "kl-divergence": [prob("pk", "p = (p, 1 − p)", 0.25), prob("qk", "q = (q, 1 − q)", 0.6)],
     "cross-entropy": [prob("pc", "True p", 0.3), prob("qc", "Model q", 0.7)],
     nonnegativity: [prob("qn", "Tangent at q", 0.35)],
@@ -1842,26 +1881,12 @@
   };
 
   specs["bregman-kl"] = {
-    // Card cover: a two-bump p, the best single Gaussian q, and KL(p ‖ q).
+    // Card cover: a concave P, a jagged Q with P ≪ Q, and KL(P ‖ Q).
     cover: function (p) {
-      var N = function (x, m, sd) { return Math.exp(-(x - m) * (x - m) / (2 * sd * sd)) / (sd * Math.sqrt(2 * Math.PI)); };
-      var P = function (x) { return 0.6 * N(x, -1.3, 0.5) + 0.4 * N(x, 1.4, 0.65); };
-      var mu = 0.6 * -1.3 + 0.4 * 1.4, v = 0.6 * (0.25 + 1.69) + 0.4 * (0.4225 + 1.96) - mu * mu, sd = Math.sqrt(v);
-      var Q = function (x) { return N(x, mu, sd); };
-      var sc = scale([-3.6, 3.9], [0, 0.62], { l: 20, r: 20, t: 80, b: 26 }), X = sc.x, Y = sc.y, i, pp = [], qq = [], kl = 0, dx = 7.5 / 600;
-      for (i = 0; i <= 600; i++) {
-        var x = -3.6 + i * dx;
-        pp.push([X(x), Y(P(x))]); qq.push([X(x), Y(Q(x))]);
-        if (P(x) > 1e-12) kl += P(x) * Math.log(P(x) / Q(x)) * dx;
-      }
-      var g = p.g(null);
-      p.line(g, X(-3.6), Y(0), X(3.9), Y(0), "axisline");
-      p.poly(g, [[X(-3.6), Y(0)]].concat(pp, [[X(3.9), Y(0)]]), "fill c-accent", true);
-      p.poly(g, pp, "curve c-accent");
-      p.poly(g, qq, "curve c-warm dash");
-      p.big(g, X(-1.3), Y(P(-1.3)) - 14, "p", 64, "c-accent");
-      p.big(g, X(mu) + 6, Y(Q(mu)) - 14, "q", 64, "c-warm");
-      p.big(g, 300, 58, "KL(p \u2016 q) = " + kl.toFixed(2), 50);
+      var q = BR.makeQ(4, false), sc = BR.pq(p, q, { l: 16, r: 16, t: 88, b: 30 }), X = sc.x, Y = sc.y, g = p.g(null);
+      p.big(g, X(0), Y(BR.p(0)) - 16, "P", 64, "c-accent");
+      p.big(g, X(-1.45), Y(Math.min(q(-1.45), 1.3)) - 14, "Q", 64, "c-warm");
+      p.big(g, 300, 64, "P \u226a Q,  KL(P \u2016 Q) = " + BR.klPQ(q).toFixed(2), 46);
     },
     alt: "Figures for Bregman divergence: a convex function with a tangent line and the gap between them, negative entropy on two outcomes, KL divergence as a tangent gap, cross-entropy as entropy plus KL, tangents under a convex curve, and code lengths for a four-symbol source.",
     story: true,
@@ -1869,7 +1894,7 @@
     init: function (s) {
       s.ch = "bregman";
       for (var c in BR.controls) BR.controls[c].forEach(function (o) { s[o.key] = o.value; });
-      s.bp = 1.9; s.bq = 0.6;
+      s.bp = 1.9; s.bq = 0.6; s.qseed = 4;
       this.box = BOX;
     },
     select: function (s, slug) {
@@ -1878,6 +1903,11 @@
       return true;
     },
     render: function (s, p) { return this[s.ch](s, p); },
+    click: function (s) {
+      if (s.ch !== "absolute-continuity" || s.ac === "bern") return false;
+      s.qseed++;
+      return true;
+    },
     drag: function (s, pt, phase) {
       var sc = this.sc;
       if (!sc || s.ch !== "bregman") return false;
@@ -1967,6 +1997,45 @@
       return BR.desc("The blue curve is the negative entropy of (<i>p</i><sub>1</sub>, 1 − <i>p</i><sub>1</sub>), the dashed line its tangent at <i>q</i>. The brown gap at <i>p</i> is the Bregman divergence, and it equals the KL divergence.") +
         "gap = " + num(BR.ne(P) - tan(P), 4) + " &nbsp;·&nbsp; Σ <i>p<sub>i</sub></i> log(<i>p<sub>i</sub></i>/<i>q<sub>i</sub></i>) = " + num(BR.kl(P, Q), 4) +
         " &nbsp;·&nbsp; swapped, KL(<i>q</i> ‖ <i>p</i>) = " + num(BR.kl(Q, P), 4) + ": not symmetric";
+    },
+
+    // Which direction? P ≪ Q makes KL(P ‖ Q) finite.
+    "absolute-continuity": function (s, p) {
+      if (s.ac === "bern") {
+        var sc = scale([-0.6, 2.6], [0, 1.25]), X = sc.x, Y = sc.y, g = p.g(null);
+        p.axes(sc, { yticks: [0.5, 1] });
+        [[0, 0.5, 0], [1, 0.5, 1]].forEach(function (t) {
+          var c = t[0] + 0.5;
+          p.rect(g, X(c - 0.34), Y(t[1]), 0.32 * sc.sx, t[1] * sc.sy, "fill c-accent");
+          p.rect(g, X(c - 0.34), Y(t[1]), 0.32 * sc.sx, t[1] * sc.sy, "curve thin c-accent");
+          if (t[2] > 0) {
+            p.rect(g, X(c + 0.02), Y(t[2]), 0.32 * sc.sx, t[2] * sc.sy, "fill c-warm");
+            p.rect(g, X(c + 0.02), Y(t[2]), 0.32 * sc.sx, t[2] * sc.sy, "curve thin c-warm");
+          } else p.line(g, X(c + 0.02), Y(0), X(c + 0.34), Y(0), "curve c-warm");
+          p.text(g, X(c), Y(0) + 20, "x = " + t[0]);
+        });
+        p.label("ab-p", "\\text{blue: } P = \\text{Bernoulli}(0.5)", X(1.05), Y(1.2), "se");
+        p.label("ab-q", "\\text{brown: } Q = \\text{Bernoulli}(1)", X(1.05), Y(1.08), "se");
+        p.label("ab-0", "q(0) = 0 < p(0)", X(0.68), Y(0) - 8, "n");
+        return BR.desc("Two coin flips. P is fair (blue); Q always lands 1 (brown), so it puts no mass on x = 0, where P puts half.") +
+          "KL(<i>P</i> ‖ <i>Q</i>) = 0.5 log(0.5/0) + 0.5 log(0.5/1) = +∞ &nbsp;·&nbsp; KL(<i>Q</i> ‖ <i>P</i>) = 0 · log(0/0.5) + 1 · log(1/0.5) = log 2 ≈ 0.693, finite because <i>Q</i> ≪ <i>P</i>";
+      }
+      var hole = s.ac === "hole", q = BR.makeQ(s.qseed, hole), sc2 = BR.pq(p, q, BOX, { low: true }), X2 = sc2.x, Y2 = sc2.y, gs = p.g(null);
+      p.line(gs, X2(-1), Y2(-0.13), X2(1), Y2(-0.13), "curve c-accent");
+      p.line(gs, X2(-1.7), Y2(-0.27), X2(1.7), Y2(-0.27), "curve c-warm");
+      p.label("ab-sp", "\\operatorname{supp} P", X2(1) + 6, Y2(-0.13), "e");
+      p.label("ab-sq", "\\operatorname{supp} Q", X2(-1.7) - 6, Y2(-0.27), "w");
+      p.label("ab-pf", "p(x) = \\tfrac34 (1 - x^2)", X2(-0.55), Y2(BR.p(-0.55)) - 8, "e");
+      p.label("ab-qf", "q(x)", X2(-1.55), Y2(Math.min(q(-1.55), 1.3)) - 6, "n");
+      if (hole) {
+        var gh = p.g(null);
+        p.rect(gh, X2(0.25), Y2(1.42), X2(0.55) - X2(0.25), Y2(0) - Y2(1.42), "fill c-warm");
+        p.label("ab-h", "q = 0 < p", X2(0.4), Y2(1.38), "s");
+      }
+      var kl = BR.klPQ(q);
+      return BR.desc("Blue: the target P, a concave density on [−1, 1]. Brown: a model Q, jagged and unlike P, spread over [−1.7, 1.7]. " +
+        (hole ? "Here Q is zero on a strip (shaded) where P has mass, so P ≪ Q fails." : "Q is positive wherever P is, so P ≪ Q.")) +
+        "KL(<i>P</i> ‖ <i>Q</i>) = " + (kl === Infinity ? "+∞" : num(kl, 3)) + " &nbsp;·&nbsp; KL(<i>Q</i> ‖ <i>P</i>) = +∞, since Q has mass outside [−1, 1] where p = 0 &nbsp;·&nbsp; <span class=\"muted\">Tap the figure for another random Q.</span>";
     },
 
     // Cross-entropy = entropy + KL; minimized over q at q = p.

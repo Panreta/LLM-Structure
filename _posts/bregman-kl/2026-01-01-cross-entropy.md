@@ -1,6 +1,6 @@
 ---
 title: Cross-entropy
-order: 4
+order: 5
 tex: '\mathrm{CE}(p, q) = -\sum_i p_i \log q_i = H(p) + \mathrm{KL}(p \,\Vert\, q)'
 ---
 Split the KL divergence:

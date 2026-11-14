@@ -1,6 +1,6 @@
 ---
 title: Optimal coding
-order: 6
+order: 7
 tex: '\sum_i p_i \log p_i \ \ge\ \sum_i p_i \log q_i \quad \Longleftrightarrow \quad H(p) \le \mathrm{CE}(p, q)'
 ---
 Nonnegativity of KL, written out, is **Gibbs' inequality** above. It says Shannon entropy is the best possible average code length.
